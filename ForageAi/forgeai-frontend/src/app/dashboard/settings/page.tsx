@@ -1,0 +1,204 @@
+"use client"
+
+import * as React from "react"
+import { useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import {
+  Settings,
+  Sparkles,
+  Plus,
+  Search,
+  Filter,
+  Play,
+  Copy,
+  Star,
+  Check,
+  Clock,
+  Tag,
+  Folder,
+  FileText,
+  Share2,
+  Download,
+  Trash2,
+  Edit3,
+  Eye,
+  Users,
+  Bot,
+  Database,
+  ShieldCheck,
+  Zap,
+  BarChart3,
+  Wand2,
+  FileCode,
+  Layers,
+  Terminal,
+  Server,
+  Globe,
+  Cpu,
+  CheckCircle2,
+  AlertCircle,
+  ArrowRight,
+  Lock,
+  RefreshCw,
+  Upload,
+  Activity,
+  Sliders,
+  ChevronDown,
+  Bookmark,
+  Mail,
+  MessageSquare,
+  Send,
+  GitBranch,
+  Code2,
+  Radio,
+  TerminalSquare,
+  DollarSign,
+  TrendingUp,
+  HardDrive,
+  CheckSquare,
+  Key,
+  Shield,
+  Palette,
+  Bell,
+  Building,
+  User,
+  CreditCard,
+  SlidersHorizontal,
+  Cloud,
+  X,
+} from "lucide-react"
+
+export default function WorkspaceSettingsHubPage() {
+  const router = useRouter()
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [aiPresetQuery, setAiPresetQuery] = useState("Optimize my AI for coding.")
+
+  // 11 Enterprise Settings Modules List
+  const settingsModules = [
+    { id: "profile", label: "My Profile", href: "/dashboard/settings/profile", icon: User, desc: "Personal info, avatar, cover banner, bio, and social links.", status: "Verified" },
+    { id: "security", label: "Account & Security", href: "/dashboard/settings/security", icon: Lock, desc: "Password, 2FA authenticator, active device sessions, and audit logs.", status: "Protected 🟢" },
+    { id: "branding", label: "Workspace Branding", href: "/dashboard/settings/branding", icon: Building, desc: "Workspace logos, custom subdomain, brand colors, and favicons.", status: "Configured" },
+    { id: "ai", label: "AI Configuration", href: "/dashboard/settings/ai", icon: Bot, desc: "Foundation LLM routing, temperature tuning, max tokens, and memory.", status: "Claude 3.5" },
+    { id: "appearance", label: "Appearance & Theme", href: "/dashboard/settings/appearance", icon: Palette, desc: "Dark/Light themes, accent colors, compact layout, and font sizing.", status: "Dark Mode" },
+    { id: "notifications", label: "Notifications", href: "/dashboard/settings/notifications", icon: Bell, desc: "Email digests, browser push, Slack/Discord webhooks, and alerts.", status: "Active" },
+    { id: "integrations", label: "Connected Accounts", href: "/dashboard/settings/integrations", icon: Cloud, desc: "Google, GitHub, Slack, OpenAI, Anthropic, and Qdrant OAuth SSO.", status: "6 Connected" },
+    { id: "developer", label: "Developer & API Keys", href: "/dashboard/settings/developer", icon: Code2, desc: "REST/GraphQL API tokens, Webhook endpoints, and rate limits.", status: "2 Keys Live" },
+    { id: "billing", label: "Billing & Plans", href: "/dashboard/settings/billing", icon: CreditCard, desc: "Subscription plan, payment methods, invoices, and token costs.", status: "Enterprise Tier" },
+    { id: "compliance", label: "SSO & Compliance", href: "/dashboard/settings/compliance", icon: ShieldCheck, desc: "SAML 2.0, Okta, Azure AD, SOC2 Type II, ISO27001, and HIPAA.", status: "SOC2 Verified" },
+    { id: "advanced", label: "Advanced System", href: "/dashboard/settings/advanced", icon: SlidersHorizontal, desc: "Cache purge, WAL snapshots, background jobs, and feature flags.", status: "Optimal" },
+  ]
+
+  const handleAiAutoPreset = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!aiPresetQuery) return
+    setToastMessage(`🧠 AI Settings Assistant configured parameters for: "${aiPresetQuery}"!`)
+    setTimeout(() => setToastMessage(null), 3500)
+  }
+
+  return (
+    <div className="w-full min-h-screen text-slate-100 font-sans pb-16 flex flex-col gap-6">
+
+      {/* PAGE HEADER */}
+      <header className="w-full bg-[#12141c]/90 backdrop-blur-xl border border-[#222534] rounded-2xl p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-lg">
+        <div>
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-500/20">
+              <Settings className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl md:text-2xl font-extrabold text-white tracking-tight">Enterprise Administration Settings</h1>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Centralized workspace management across 11 dedicated enterprise settings modules.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+          <button
+            onClick={() => setToastMessage("📥 Exported master enterprise configuration ZIP!")}
+            className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-purple-600/20 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-white" />
+            <span>Export Configuration</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Toast Alert */}
+      {toastMessage && (
+        <div className="bg-purple-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 animate-pulse fixed top-5 right-5 z-50">
+          <Sparkles className="w-4 h-4 text-white" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* NATURAL LANGUAGE AI SETTINGS ASSISTANT BAR */}
+      <div className="bg-[#141620] border border-[#232736] rounded-2xl p-4 shadow-xl flex flex-col gap-3 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+            <Wand2 className="w-4 h-4 text-purple-400" /> AI Settings Assistant (Natural Language Tuning)
+          </span>
+          <span className="text-[10px] text-emerald-400 font-mono font-bold">Auto Tuning Mode</span>
+        </div>
+
+        <form onSubmit={handleAiAutoPreset} className="relative">
+          <input
+            type="text"
+            value={aiPresetQuery}
+            onChange={(e) => setAiPresetQuery(e.target.value)}
+            placeholder="Describe desired setup e.g., 'Optimize my AI for coding' or 'Configure maximum privacy'..."
+            className="w-full bg-[#0d0e14] border border-[#262a3c] rounded-xl pl-4 pr-44 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 font-sans"
+          />
+          <button
+            type="submit"
+            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold px-4 py-1.5 rounded-lg transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Auto Configure</span>
+          </button>
+        </form>
+      </div>
+
+      {/* 11 DEDICATED SETTINGS MODULE CARDS GRID */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {settingsModules.map((mod) => {
+          const Icon = mod.icon
+          return (
+            <div
+              key={mod.id}
+              onClick={() => router.push(mod.href)}
+              className="p-5 bg-[#141620] border border-[#232736] hover:border-purple-500/60 rounded-2xl flex flex-col justify-between gap-4 shadow-xl transition-all group cursor-pointer"
+            >
+              <div>
+                <div className="flex items-center justify-between border-b border-[#232736] pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-[#1e2232] border border-[#2d3248] text-purple-400 flex items-center justify-center font-bold group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm font-bold text-white tracking-tight">{mod.label}</h3>
+                  </div>
+
+                  <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#0d0e14] border border-[#232736] text-purple-300">
+                    {mod.status}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-300 my-3 leading-relaxed font-sans bg-[#0d0e14] p-3 rounded-xl border border-[#1e2232]">
+                  {mod.desc}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#232736] text-xs font-bold text-purple-400 group-hover:text-purple-300 transition-colors">
+                <span>Manage {mod.label}</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+    </div>
+  )
+}
