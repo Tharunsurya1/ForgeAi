@@ -20,7 +20,7 @@ class BlueprintArtifact(Base):
     file_size_bytes = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    blueprint = relationship("Blueprint")
+    blueprint = relationship("Blueprint", back_populates="artifacts")
 
     __table_args__ = (
         Index("idx_artifacts_blueprint", "blueprint_id", "version"),

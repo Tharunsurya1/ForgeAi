@@ -27,7 +27,26 @@ def db() -> Generator[Session, None, None]:
                 .all()
             )
             for u in test_users:
+                # Delete user sessions
                 session.query(UserSession).filter(UserSession.user_id == u.id).delete()
+                
+                # Find and delete projects and teams created by user
+                from app.models.project import Project
+                from app.models.organization_member import OrganizationMember
+                from app.models.organization import Organization
+                from app.models.team import Team
+                from app.models.team_member import TeamMember
+                
+                org_members = session.query(OrganizationMember).filter(OrganizationMember.user_id == u.id).all()
+                org_ids = [om.organization_id for om in org_members]
+                
+                session.query(TeamMember).filter(TeamMember.user_id == u.id).delete()
+                session.query(Project).filter(Project.created_by == u.id).delete()
+                session.query(OrganizationMember).filter(OrganizationMember.user_id == u.id).delete()
+                if org_ids:
+                    session.query(Team).filter(Team.organization_id.in_(org_ids)).delete(synchronize_session=False)
+                    session.query(Organization).filter(Organization.id.in_(org_ids)).delete(synchronize_session=False)
+                
                 session.delete(u)
             session.commit()
         except Exception:

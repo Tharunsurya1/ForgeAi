@@ -380,3 +380,221 @@ def test_logout_revokes_session(client: TestClient, db: Session):
         json={"refresh_token": refresh_token},
     )
     assert try_refresh_res.status_code == 401
+
+
+def test_list_sessions_authenticated(client: TestClient):
+    """Test GET /api/v1/auth/sessions returns active sessions with valid schema."""
+    unique_email = f"sess_{uuid.uuid4().hex[:8]}@testforgeai.com"
+    raw_password = "Password123!"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": unique_email,
+            "password": raw_password,
+            "full_name": "Session Tester",
+        },
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": raw_password},
+    )
+    token = login_res.json()["access_token"]
+
+    res = client.get(
+        "/api/v1/auth/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    sessions = res.json()
+    assert isinstance(sessions, list)
+    assert len(sessions) >= 1
+
+    first_sess = sessions[0]
+    assert "id" in first_sess
+    assert "device_info" in first_sess
+    assert "ip_address" in first_sess
+    assert "is_current" in first_sess
+    assert "is_revoked" in first_sess
+    assert "created_at" in first_sess
+    assert "expires_at" in first_sess
+    # Ensure sensitive token material is NOT exposed
+    assert "refresh_token" not in first_sess
+    assert "refresh_token_hash" not in first_sess
+    assert "user_id" not in first_sess
+
+
+def test_list_sessions_unauthenticated(client: TestClient):
+    """Test GET /api/v1/auth/sessions returns 401 when unauthorized."""
+    res = client.get("/api/v1/auth/sessions")
+    assert res.status_code == 401
+
+
+def test_revoke_specific_session(client: TestClient, db: Session):
+    """Test DELETE /api/v1/auth/sessions/{session_id} revokes targeted session."""
+    unique_email = f"revsess_{uuid.uuid4().hex[:8]}@testforgeai.com"
+    raw_password = "Password123!"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": unique_email,
+            "password": raw_password,
+            "full_name": "Revoke Session Tester",
+        },
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": raw_password},
+    )
+    token = login_res.json()["access_token"]
+
+    # List sessions to get ID
+    list_res = client.get(
+        "/api/v1/auth/sessions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_res.status_code == 200
+    session_id = list_res.json()[0]["id"]
+
+    # Revoke specific session
+    del_res = client.delete(
+        f"/api/v1/auth/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert del_res.status_code == 200
+    assert "successfully revoked" in del_res.json()["message"].lower()
+
+    # Verify session is now revoked
+    sess_in_db = db.query(UserSession).filter(UserSession.id == session_id).first()
+    assert sess_in_db.is_revoked is True
+
+
+def test_logout_all_other_sessions(client: TestClient, db: Session):
+    """Test POST /api/v1/auth/logout with all_other=True revokes all other sessions."""
+    unique_email = f"logoutall_{uuid.uuid4().hex[:8]}@testforgeai.com"
+    raw_password = "Password123!"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": unique_email,
+            "password": raw_password,
+            "full_name": "Logout All Other Tester",
+        },
+    )
+
+    # Session 1 (Device A)
+    login1_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": raw_password},
+    )
+    token1 = login1_res.json()["access_token"]
+    refresh1 = login1_res.json()["refresh_token"]
+
+    # Session 2 (Device B)
+    login2_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": raw_password},
+    )
+    refresh2 = login2_res.json()["refresh_token"]
+
+    # Logout all other devices from Session 1
+    logout_other_res = client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {token1}"},
+        json={"refresh_token": refresh1, "all_other": True},
+    )
+    assert logout_other_res.status_code == 200
+
+    # Session 1's refresh token should still be active
+    refresh1_res = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh1},
+    )
+    assert refresh1_res.status_code == 200
+
+    # Session 2's refresh token must be revoked
+    refresh2_res = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh2},
+    )
+    assert refresh2_res.status_code == 401
+
+
+def test_update_profile_success(client: TestClient, db: Session):
+    """Test PATCH /api/v1/auth/me updates permitted fields and persists in DB."""
+    unique_email = f"prof_{uuid.uuid4().hex[:8]}@testforgeai.com"
+    raw_password = "Password123!"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": unique_email,
+            "password": raw_password,
+            "full_name": "Original Name",
+        },
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": raw_password},
+    )
+    token = login_res.json()["access_token"]
+
+    # Update profile
+    patch_res = client.patch(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "full_name": "Updated Real Name",
+            "avatar_url": "https://example.com/avatar.png",
+        },
+    )
+    assert patch_res.status_code == 200
+    updated_data = patch_res.json()
+    assert updated_data["full_name"] == "Updated Real Name"
+    assert updated_data["avatar_url"] == "https://example.com/avatar.png"
+    assert updated_data["email"] == unique_email.lower()
+
+    # Verify DB persistence
+    user_in_db = db.query(User).filter(User.email == unique_email.lower()).first()
+    assert user_in_db.full_name == "Updated Real Name"
+    assert user_in_db.avatar_url == "https://example.com/avatar.png"
+
+
+def test_update_profile_unauthenticated(client: TestClient):
+    """Test PATCH /api/v1/auth/me returns 401 when unauthorized."""
+    res = client.patch("/api/v1/auth/me", json={"full_name": "Test"})
+    assert res.status_code == 401
+
+
+def test_update_profile_validation(client: TestClient):
+    """Test PATCH /api/v1/auth/me rejects empty name."""
+    unique_email = f"profval_{uuid.uuid4().hex[:8]}@testforgeai.com"
+    raw_password = "Password123!"
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": unique_email,
+            "password": raw_password,
+            "full_name": "Original Name",
+        },
+    )
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": unique_email, "password": raw_password},
+    )
+    token = login_res.json()["access_token"]
+
+    # Empty string full_name
+    res = client.patch(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"full_name": "   "},
+    )
+    assert res.status_code in (400, 422)

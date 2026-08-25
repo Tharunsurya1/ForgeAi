@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   Search,
@@ -49,9 +49,19 @@ import {
   X,
   ExternalLink,
   PieChart as PieIcon,
+  Loader2,
 } from "lucide-react"
+import { authApi, projectsApi } from "@/lib/api"
+import { authStorage } from "@/lib/auth"
+import { User, Project } from "@/types"
 
 export default function DashboardPage() {
+  // Live State from Backend
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [apiError, setApiError] = useState<string | null>(null)
+
   // State for interactive features
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
   const [selectedModel, setSelectedModel] = useState("GPT-4o (Active)")
@@ -82,6 +92,43 @@ export default function DashboardPage() {
 
   const [projectFilter, setProjectFilter] = useState("All")
 
+  // Load User and Projects from Live Backend
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true)
+      setApiError(null)
+
+      // 1. Initial cached user fallback
+      const cachedUser = authStorage.getUser()
+      if (cachedUser) {
+        setCurrentUser(cachedUser)
+      }
+
+      // 2. Fetch live user profile & projects
+      try {
+        const [me, projectList] = await Promise.all([
+          authApi.getMe().catch(() => cachedUser),
+          projectsApi.list().catch(() => []),
+        ])
+
+        if (me) {
+          setCurrentUser(me)
+          authStorage.setUser(me)
+        }
+        if (Array.isArray(projectList)) {
+          setProjects(projectList)
+        }
+      } catch (err: any) {
+        console.error("Dashboard initial fetch error:", err)
+        setApiError(err.message || "Failed to synchronize dashboard state.")
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    fetchData()
+  }, [])
+
   const toggleTask = (id: number) => {
     setPendingTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t))
   }
@@ -104,6 +151,14 @@ export default function DashboardPage() {
   const markNotificationRead = (id: number) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, unread: false } : n))
   }
+
+  const userName = currentUser?.full_name || "Tharun"
+  const userInitials = userName
+    .split(" ")
+    .map(n => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "TH"
 
   return (
     <div className="w-full min-h-screen text-slate-100 font-sans pb-16 flex flex-col gap-8">
@@ -261,12 +316,12 @@ export default function DashboardPage() {
           {/* User Profile */}
           <div className="flex items-center gap-2.5 pl-2 border-l border-[#262936]">
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center font-bold text-xs border border-blue-400/30 shrink-0 shadow-md">
-              TH
+              {userInitials}
             </div>
             <div className="hidden lg:flex flex-col text-left">
-              <span className="text-xs font-semibold text-white leading-tight">Tharun</span>
+              <span className="text-xs font-semibold text-white leading-tight">{userName}</span>
               <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Admin
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> {currentUser?.is_superuser ? "SuperAdmin" : "Member"}
               </span>
             </div>
           </div>
@@ -286,32 +341,32 @@ export default function DashboardPage() {
 
         <div className="relative z-10 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-400 mb-3">
-            <Sparkles className="w-3.5 h-3.5" /> ForgeAI v2.4 Enterprise Release
+            <Sparkles className="w-3.5 h-3.5" /> ForgeAI Multi-Agent DAG Studio
           </div>
           <h2 className="text-2xl md:text-4xl font-extrabold text-white tracking-tight leading-tight">
-            Welcome back, Tharun 👋
+            Welcome back, {userName} 👋
           </h2>
           <p className="text-sm md:text-base text-slate-300 mt-2 font-normal leading-relaxed">
-            Good Morning! Manage your AI workspace, agents, projects and automations from one place.
+            Manage your AI workspace, software architecture blueprints, active projects, and multi-agent automations.
           </p>
         </div>
 
         {/* Hero Action Buttons */}
         <div className="relative z-10 flex flex-wrap items-center gap-3 shrink-0">
           <Link
-            href="/dashboard/projects/new"
+            href="/dashboard/blueprint-ai/new"
             className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-xs md:text-sm px-5 py-3 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-blue-600/25 active:scale-95 cursor-pointer"
           >
-            <Plus className="w-4 h-4 text-white" />
-            <span>Create New Project</span>
+            <Sparkles className="w-4 h-4 text-white" />
+            <span>Generate Blueprint</span>
           </Link>
 
           <Link
-            href="/dashboard/ai/chat"
-            className="bg-[#181a24] hover:bg-[#222533] border border-[#2d3246] text-slate-200 font-semibold text-xs md:text-sm px-5 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+            href="/dashboard/projects"
+            className="bg-[#181a24] hover:bg-[#222533] border border-[#2d3248] text-slate-200 font-semibold text-xs md:text-sm px-5 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
           >
-            <MessageSquare className="w-4 h-4 text-purple-400" />
-            <span>Start AI Chat</span>
+            <Folder className="w-4 h-4 text-purple-400" />
+            <span>View All Projects</span>
           </Link>
         </div>
 
@@ -322,63 +377,65 @@ export default function DashboardPage() {
       {/* ========================================================================= */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         
-        {/* KPI 1: Total AI Requests */}
+        {/* KPI 1: Active Projects Count */}
         <div className="bg-[#14161f] border border-[#232736] rounded-2xl p-5 flex flex-col justify-between h-44 shadow-md hover:border-[#32384d] transition-all group">
           <div className="flex items-center justify-between">
             <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Zap className="w-5 h-5" />
+              <Folder className="w-5 h-5" />
             </div>
             <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> +14.2%
+              <TrendingUp className="w-3.5 h-3.5" /> PostgreSQL
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-400">Total AI Requests</p>
-            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">1,428,950</h3>
+            <p className="text-xs font-medium text-slate-400">Total Software Projects</p>
+            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">
+              {isLoadingData ? "..." : projects.length}
+            </h3>
           </div>
-          {/* Mini Sparkline Chart */}
+          {/* Mini Progress Bar */}
           <div className="w-full h-2 bg-[#1c1f2c] rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full w-[78%]"></div>
+            <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full w-[85%]"></div>
           </div>
         </div>
 
-        {/* KPI 2: Tokens Used */}
+        {/* KPI 2: AI Agents Active */}
         <div className="bg-[#14161f] border border-[#232736] rounded-2xl p-5 flex flex-col justify-between h-44 shadow-md hover:border-[#32384d] transition-all group">
           <div className="flex items-center justify-between">
             <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Cpu className="w-5 h-5" />
+              <Bot className="w-5 h-5" />
             </div>
             <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> +8.6%
+              <TrendingUp className="w-3.5 h-3.5" /> 7 Agents
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-400">Tokens Used</p>
-            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">84.2M</h3>
+            <p className="text-xs font-medium text-slate-400">AI Domain Agents</p>
+            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">7 Live</h3>
           </div>
-          {/* Mini Sparkline Chart */}
+          {/* Mini Progress Bar */}
           <div className="w-full h-2 bg-[#1c1f2c] rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full w-[84%]"></div>
+            <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full w-[100%]"></div>
           </div>
         </div>
 
-        {/* KPI 3: Cost This Month */}
+        {/* KPI 3: Blueprints Generated */}
         <div className="bg-[#14161f] border border-[#232736] rounded-2xl p-5 flex flex-col justify-between h-44 shadow-md hover:border-[#32384d] transition-all group">
           <div className="flex items-center justify-between">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <BarChart3 className="w-5 h-5" />
+              <Code2 className="w-5 h-5" />
             </div>
             <div className="px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold flex items-center gap-1">
-              <TrendingDown className="w-3.5 h-3.5" /> -3.1%
+              Deterministic
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-400">Cost This Month</p>
-            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">$1,248.50</h3>
+            <p className="text-xs font-medium text-slate-400">Artifacts Engine</p>
+            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">Ready</h3>
           </div>
-          {/* Mini Sparkline Chart */}
+          {/* Mini Progress Bar */}
           <div className="w-full h-2 bg-[#1c1f2c] rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full w-[62%]"></div>
+            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full w-[90%]"></div>
           </div>
         </div>
 
@@ -389,16 +446,16 @@ export default function DashboardPage() {
               <Clock className="w-5 h-5" />
             </div>
             <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-1">
-              -18ms
+              &lt; 50ms
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-400">Avg Response Time</p>
-            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">240ms</h3>
+            <p className="text-xs font-medium text-slate-400">Database Latency</p>
+            <h3 className="text-3xl font-extrabold text-white tracking-tight mt-1">12ms</h3>
           </div>
-          {/* Mini Sparkline Chart */}
+          {/* Mini Progress Bar */}
           <div className="w-full h-2 bg-[#1c1f2c] rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-amber-500 to-orange-400 rounded-full w-[90%]"></div>
+            <div className="h-full bg-gradient-to-r from-amber-500 to-orange-400 rounded-full w-[95%]"></div>
           </div>
         </div>
 
@@ -421,12 +478,12 @@ export default function DashboardPage() {
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Folder className="w-4 h-4 text-blue-400" /> Recent Projects
                 </h3>
-                <p className="text-xs text-slate-400">Active AI development projects & repositories</p>
+                <p className="text-xs text-slate-400">Live PostgreSQL workspace repositories</p>
               </div>
 
               {/* Status Filter Tabs */}
               <div className="flex items-center gap-1 bg-[#0d0e12] p-1 rounded-xl border border-[#232736]">
-                {["All", "Active", "Deploying", "Paused"].map((st) => (
+                {["All", "Active", "Completed"].map((st) => (
                   <button
                     key={st}
                     onClick={() => setProjectFilter(st)}
@@ -440,60 +497,82 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-[#232736]">
-                    <th className="pb-3 px-2">Project Name</th>
-                    <th className="pb-3 px-2">Type</th>
-                    <th className="pb-3 px-2">Last Updated</th>
-                    <th className="pb-3 px-2">Status</th>
-                    <th className="pb-3 px-2">Owner</th>
-                    <th className="pb-3 px-2 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1e2230]">
-                  {[
-                    { name: "Neural Engine v3", type: "LLM Infrastructure", updated: "2m ago", status: "Active", owner: "Tharun" },
-                    { name: "Automated Support Agent", type: "AI Agent", updated: "14m ago", status: "Deploying", owner: "Sarah K." },
-                    { name: "Vector DB Pipeline", type: "Data Science", updated: "1h ago", status: "Active", owner: "Alex D." },
-                    { name: "Vision OCR Pipeline", type: "Computer Vision", updated: "3h ago", status: "Completed", owner: "Tharun" },
-                    { name: "CodeRefactor Bot", type: "Automation", updated: "1d ago", status: "Paused", owner: "Marcus V." },
-                  ]
-                    .filter(p => projectFilter === "All" || p.status === projectFilter)
-                    .map((proj, idx) => (
-                      <tr key={idx} className="hover:bg-[#191c28] transition-colors group">
-                        <td className="py-3 px-2 font-semibold text-white flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                          {proj.name}
-                        </td>
-                        <td className="py-3 px-2 text-slate-400">{proj.type}</td>
-                        <td className="py-3 px-2 text-slate-400 font-mono">{proj.updated}</td>
-                        <td className="py-3 px-2">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            proj.status === "Active" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
-                            proj.status === "Deploying" ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
-                            proj.status === "Completed" ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
-                            "bg-slate-500/10 border-slate-500/30 text-slate-400"
-                          }`}>
-                            {proj.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-slate-300">{proj.owner}</td>
-                        <td className="py-3 px-2 text-right">
-                          <Link
-                            href="/dashboard/projects"
-                            className="bg-[#1e2230] hover:bg-[#2563eb] text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1"
-                          >
-                            Open <ChevronRight className="w-3 h-3" />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+            {/* Table or Empty State */}
+            {isLoadingData ? (
+              <div className="py-8 flex items-center justify-center gap-2 text-slate-400 text-xs font-mono">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                <span>Loading projects from database...</span>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="py-10 flex flex-col items-center justify-center text-center gap-3 bg-[#0d0e12] rounded-xl border border-[#232736] p-6">
+                <Folder className="w-8 h-8 text-slate-500" />
+                <div>
+                  <h4 className="text-xs font-bold text-white">No Projects Initialized</h4>
+                  <p className="text-[11px] text-slate-400 mt-1">Start by creating a project or generating an AI blueprint.</p>
+                </div>
+                <Link
+                  href="/dashboard/blueprint-ai/new"
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg mt-1"
+                >
+                  Generate First Blueprint
+                </Link>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-[#232736]">
+                      <th className="pb-3 px-2">Project Name</th>
+                      <th className="pb-3 px-2">Tech Stack</th>
+                      <th className="pb-3 px-2">Created</th>
+                      <th className="pb-3 px-2">Status</th>
+                      <th className="pb-3 px-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1e2230]">
+                    {projects
+                      .filter(p => projectFilter === "All" || p.status.toLowerCase() === projectFilter.toLowerCase())
+                      .slice(0, 5)
+                      .map((proj) => {
+                        const backendTech = proj.tech_stack?.backend || "FastAPI"
+                        const frontendTech = proj.tech_stack?.frontend || "Next.js"
+
+                        return (
+                          <tr key={proj.id} className="hover:bg-[#191c28] transition-colors group">
+                            <td className="py-3 px-2 font-semibold text-white flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              <span className="truncate max-w-[200px]">{proj.name}</span>
+                            </td>
+                            <td className="py-3 px-2 text-purple-300 font-mono text-[11px]">
+                              {backendTech} / {frontendTech}
+                            </td>
+                            <td className="py-3 px-2 text-slate-400 font-mono text-[11px]">
+                              {new Date(proj.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="py-3 px-2">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                proj.status.toLowerCase() === "active" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                                proj.status.toLowerCase() === "completed" ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
+                                "bg-slate-500/10 border-slate-500/30 text-slate-400"
+                              }`}>
+                                {proj.status.toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="py-3 px-2 text-right">
+                              <Link
+                                href="/dashboard/projects"
+                                className="bg-[#1e2230] hover:bg-[#2563eb] text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-all inline-flex items-center gap-1"
+                              >
+                                Open <ChevronRight className="w-3 h-3" />
+                              </Link>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
 
           {/* ========================================================================= */}

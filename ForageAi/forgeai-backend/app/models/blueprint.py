@@ -21,6 +21,7 @@ class Blueprint(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     project = relationship("Project")
+    artifacts = relationship("BlueprintArtifact", back_populates="blueprint", cascade="all, delete-orphan", lazy="selectin")
 
     __table_args__ = (
         Index("idx_blueprints_project", "project_id"),

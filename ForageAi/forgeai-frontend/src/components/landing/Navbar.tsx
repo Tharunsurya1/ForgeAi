@@ -1,15 +1,38 @@
 "use client"
 
 import * as React from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { motion, useScroll, useTransform } from "framer-motion"
 import { Button } from "@/components/ui/Button"
-import { Menu, X } from "lucide-react"
+import { Menu, X, LogOut, LayoutDashboard } from "lucide-react"
+import { authStorage } from "@/lib/auth"
+import { authApi } from "@/lib/api"
 
 export function Navbar() {
+  const router = useRouter()
   const [isOpen, setIsOpen] = React.useState(false)
+  const [isAuth, setIsAuth] = useState(false)
   const { scrollY } = useScroll()
   const isScrolled = useTransform(scrollY, [0, 50], [0, 1])
+
+  useEffect(() => {
+    setIsAuth(authStorage.isAuthenticated())
+  }, [])
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      authStorage.clearAuth()
+      setIsAuth(false)
+      setIsOpen(false)
+      router.refresh()
+    }
+  }
 
   return (
     <motion.header
@@ -53,13 +76,33 @@ export function Navbar() {
           <Link href="#changelog" className="text-gray-300 hover:text-white transition-colors">Changelog</Link>
         </div>
         
-        <div className="hidden lg:flex lg:flex-1 lg:justify-end lg:gap-x-6 items-center">
-          <Link href="/login" className="text-sm font-medium leading-6 text-gray-300 hover:text-white transition-colors">
-            Sign in
-          </Link>
-          <Button variant="default" size="sm" className="rounded-md bg-[#5a55e2] hover:bg-[#4a45d2] text-white border-0 shadow-none px-4 h-9">
-            Get Started
-          </Button>
+        <div className="hidden lg:flex lg:flex-1 lg:justify-end lg:gap-x-4 items-center">
+          {isAuth ? (
+            <>
+              <Link href="/dashboard" className="flex items-center gap-1.5 text-sm font-semibold text-white bg-[#1a1d26] hover:bg-[#252a38] px-3.5 py-2 rounded-lg border border-[#2d3248] transition-colors">
+                <LayoutDashboard className="w-4 h-4 text-purple-400" />
+                <span>Dashboard</span>
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 text-sm font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-600 px-3.5 py-2 rounded-lg border border-rose-500/30 transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Log Out</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" className="text-sm font-medium leading-6 text-gray-300 hover:text-white transition-colors">
+                Sign in
+              </Link>
+              <Link href="/signup">
+                <Button variant="default" size="sm" className="rounded-md bg-[#5a55e2] hover:bg-[#4a45d2] text-white border-0 shadow-none px-4 h-9 cursor-pointer">
+                  Get Started
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       </nav>
       
@@ -71,9 +114,26 @@ export function Navbar() {
             <Link href="#developers" className="block text-base font-medium text-gray-300" onClick={() => setIsOpen(false)}>Developers</Link>
             <Link href="#pricing" className="block text-base font-medium text-gray-300" onClick={() => setIsOpen(false)}>Pricing</Link>
             <Link href="#changelog" className="block text-base font-medium text-gray-300" onClick={() => setIsOpen(false)}>Changelog</Link>
-            <div className="pt-4 border-t border-white/10 flex flex-col gap-4">
-              <Link href="/login" className="block text-base font-medium text-gray-300" onClick={() => setIsOpen(false)}>Sign in</Link>
-              <Button variant="default" className="w-full justify-center bg-[#5a55e2]">Get Started</Button>
+            <div className="pt-4 border-t border-white/10 flex flex-col gap-3">
+              {isAuth ? (
+                <>
+                  <Link href="/dashboard" className="flex items-center gap-2 text-base font-medium text-white" onClick={() => setIsOpen(false)}>
+                    <LayoutDashboard className="w-4 h-4 text-purple-400" />
+                    Dashboard
+                  </Link>
+                  <button onClick={handleLogout} className="flex items-center gap-2 text-base font-medium text-rose-400 text-left">
+                    <LogOut className="w-4 h-4" />
+                    Log Out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="block text-base font-medium text-gray-300" onClick={() => setIsOpen(false)}>Sign in</Link>
+                  <Link href="/signup" onClick={() => setIsOpen(false)}>
+                    <Button variant="default" className="w-full justify-center bg-[#5a55e2]">Get Started</Button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -81,3 +141,4 @@ export function Navbar() {
     </motion.header>
   )
 }
+

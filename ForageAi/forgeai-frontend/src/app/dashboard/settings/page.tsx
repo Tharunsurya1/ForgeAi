@@ -67,12 +67,18 @@ import {
   SlidersHorizontal,
   Cloud,
   X,
+  LogOut,
 } from "lucide-react"
+import { authApi } from "@/lib/api"
+import { authStorage } from "@/lib/auth"
 
 export default function WorkspaceSettingsHubPage() {
   const router = useRouter()
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [aiPresetQuery, setAiPresetQuery] = useState("Optimize my AI for coding.")
+
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   // 11 Enterprise Settings Modules List
   const settingsModules = [
@@ -96,6 +102,20 @@ export default function WorkspaceSettingsHubPage() {
     setTimeout(() => setToastMessage(null), 3500)
   }
 
+  const handleLogout = async () => {
+    setIsLoggingOut(true)
+    try {
+      await authApi.logout()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      authStorage.clearAuth()
+      setIsLoggingOut(false)
+      setShowLogoutModal(false)
+      router.push("/login")
+    }
+  }
+
   return (
     <div className="w-full min-h-screen text-slate-100 font-sans pb-16 flex flex-col gap-6">
 
@@ -115,13 +135,21 @@ export default function WorkspaceSettingsHubPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+        <div className="flex items-center gap-3 w-full md:w-auto justify-end flex-wrap">
           <button
             onClick={() => setToastMessage("📥 Exported master enterprise configuration ZIP!")}
             className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md shadow-purple-600/20 cursor-pointer"
           >
             <Download className="w-4 h-4 text-white" />
-            <span>Export Configuration</span>
+            <span>Export Config</span>
+          </button>
+
+          <button
+            onClick={() => setShowLogoutModal(true)}
+            className="bg-rose-600/20 hover:bg-rose-600 border border-rose-500/30 text-rose-300 hover:text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out</span>
           </button>
         </div>
       </header>
@@ -199,6 +227,86 @@ export default function WorkspaceSettingsHubPage() {
         })}
       </div>
 
+      {/* SESSION & LOGOUT BANNER */}
+      <div className="p-6 bg-gradient-to-r from-[#141620] to-[#1e1528] border border-rose-500/30 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center font-bold shrink-0 shadow-inner">
+            <LogOut className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-white">Active Account Session</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Signed in as an authenticated enterprise administrator. Ready to conclude your session?
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push("/dashboard/settings/security")}
+            className="px-4 py-2.5 bg-[#181a26] hover:bg-[#222536] text-slate-300 font-semibold text-xs rounded-xl border border-[#2d3248] transition-colors cursor-pointer"
+          >
+            Manage Sessions
+          </button>
+          <button
+            onClick={() => setShowLogoutModal(true)}
+            className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-rose-600/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out Now</span>
+          </button>
+        </div>
+      </div>
+
+      {/* LOGOUT CONFIRMATION MODAL */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141620] border border-[#262a3c] rounded-2xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4 text-xs animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between border-b border-[#232736] pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center font-bold">
+                  <LogOut className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Confirm Sign Out</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Are you sure you want to end your current session?
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                disabled={isLoggingOut}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#232736]">
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(false)}
+                disabled={isLoggingOut}
+                className="px-4 py-2 bg-[#181a26] hover:bg-[#222536] text-slate-300 font-semibold rounded-xl border border-[#2d3248] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl shadow-lg flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <LogOut className="w-3.5 h-3.5 text-white" />
+                <span>{isLoggingOut ? "Signing Out..." : "Sign Out"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
+

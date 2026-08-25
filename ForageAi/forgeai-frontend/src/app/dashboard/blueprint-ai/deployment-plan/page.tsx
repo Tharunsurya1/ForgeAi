@@ -1,262 +1,289 @@
-import * as React from "react"
-import Link from "next/link"
+"use client"
 
-export default function DeploymentPage() {
+import * as React from "react"
+import { useState, useEffect, Suspense } from "react"
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
+import {
+  Rocket,
+  ShieldCheck,
+  Download,
+  Copy,
+  Check,
+  ChevronRight,
+  AlertCircle,
+  Loader2,
+  Sparkles,
+  Server,
+  Cloud,
+  FileCode,
+  Shield,
+  Plus,
+} from "lucide-react"
+import { blueprintsApi } from "@/lib/api"
+import { Blueprint, BlueprintArtifact } from "@/types"
+
+function DeploymentPlanContent() {
+  const searchParams = useSearchParams()
+  const blueprintId = searchParams.get("id")
+
+  const [blueprint, setBlueprint] = useState<Blueprint | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [copiedDeploy, setCopiedDeploy] = useState(false)
+  const [copiedSecurity, setCopiedSecurity] = useState(false)
+
+  useEffect(() => {
+    const fetchBlueprint = async () => {
+      setIsLoading(true)
+      setErrorMsg(null)
+
+      let activeId = blueprintId
+      if (!activeId && typeof window !== "undefined") {
+        activeId = localStorage.getItem("forgeai_active_blueprint_id")
+      }
+
+      if (!activeId) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        const data = await blueprintsApi.get(activeId)
+        setBlueprint(data)
+      } catch (err: any) {
+        console.error("Failed to load blueprint deployment artifact:", err)
+        setErrorMsg(err.message || "Failed to load deployment plan artifact.")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchBlueprint()
+  }, [blueprintId])
+
+  const deployArtifact = blueprint?.artifacts?.find(a => a.artifact_type === "deployment")
+  const securityArtifact = blueprint?.artifacts?.find(a => a.artifact_type === "security")
+
+  const handleCopyDeploy = () => {
+    if (deployArtifact?.content) {
+      navigator.clipboard.writeText(deployArtifact.content)
+      setCopiedDeploy(true)
+      setTimeout(() => setCopiedDeploy(false), 2000)
+    }
+  }
+
+  const handleCopySecurity = () => {
+    if (securityArtifact?.content) {
+      navigator.clipboard.writeText(securityArtifact.content)
+      setCopiedSecurity(true)
+      setTimeout(() => setCopiedSecurity(false), 2000)
+    }
+  }
+
+  const handleDownloadDocker = () => {
+    if (!deployArtifact?.content) return
+    const blob = new Blob([deployArtifact.content], { type: "text/yaml;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "docker-compose.yml"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
-    <div className="max-w-[1440px] mx-auto w-full h-full pb-xl">
+    <div className="max-w-[1440px] mx-auto w-full h-full pb-16 flex flex-col gap-6 text-slate-100">
       
-      {/* Pre-Header */}
-      <div className="flex items-center gap-2 mb-4 font-code-sm text-code-sm font-semibold tracking-widest text-on-surface-variant uppercase">
-        <span className="material-symbols-outlined text-[16px]">rocket_launch</span>
-        <span>Blueprint / Phase 4</span>
+      {/* Breadcrumbs */}
+      <div className="flex items-center gap-2 text-xs font-mono text-slate-400 uppercase tracking-wider">
+        <Link href="/dashboard/projects" className="hover:text-white transition-colors">Projects</Link>
+        <ChevronRight className="w-3.5 h-3.5" />
+        <Link href="/dashboard/blueprint-ai/software-architecture" className="hover:text-white transition-colors">Blueprint</Link>
+        <ChevronRight className="w-3.5 h-3.5" />
+        <span className="text-purple-400 font-bold">Deployment & Security</span>
       </div>
 
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-xl">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#12141c]/90 border border-[#222534] rounded-2xl p-6 shadow-xl backdrop-blur-xl">
         <div>
-          <h2 className="text-headline-lg-mobile md:text-headline-lg font-headline-lg-mobile md:font-headline-lg text-on-surface">Deployment & Security</h2>
-          <p className="text-body-lg font-body-lg text-on-surface-variant mt-2 max-w-2xl">
-            Configure environments, review CI/CD automation, and validate security compliance before launch.
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 text-purple-400 flex items-center justify-center font-bold">
+              <Rocket className="w-4 h-4" />
+            </div>
+            <h1 className="text-xl md:text-2xl font-extrabold text-white tracking-tight">
+              {blueprint?.title ? `${blueprint.title} — Deployment & Security` : "Deployment & Security Policies"}
+            </h1>
+          </div>
+          <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Multi-container Docker Compose definitions, environment configurations, and enterprise security policies.
           </p>
         </div>
-        <div className="flex gap-3">
-          <button className="btn-secondary px-4 py-2 rounded-lg font-label-md text-label-md flex items-center gap-2 text-on-surface hover:bg-surface-variant/30 transition-colors">
-            <span className="material-symbols-outlined text-[18px]">history</span>
-            View Audit Log
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleDownloadDocker}
+            disabled={!deployArtifact}
+            className="px-4 py-2 bg-[#181a26] hover:bg-[#222536] border border-[#2d3248] text-slate-200 font-semibold text-xs rounded-xl flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Download className="w-4 h-4 text-purple-400" />
+            <span>Download Docker Compose</span>
           </button>
-          <button className="bg-gradient-primary text-white px-6 py-2 rounded-lg font-label-md text-label-md flex items-center gap-2 shadow-[0_0_15px_rgba(88,86,214,0.3)] hover:shadow-[0_0_20px_rgba(88,86,214,0.5)] transition-all">
-            <span className="material-symbols-outlined text-[18px]">play_arrow</span>
-            Trigger Deploy
-          </button>
+          
+          <Link
+            href="/dashboard/blueprint-ai/summary"
+            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-lg cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Blueprint Summary</span>
+          </Link>
         </div>
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-gutter">
-        
-        {/* Left Column: Deployment & CI/CD */}
-        <div className="flex-1 flex flex-col gap-gutter">
-          
-          {/* Deployment Plan */}
-          <div className="glass-panel border border-[#262626] rounded-xl p-md bg-[#171717]/80">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-headline-md font-headline-md text-on-surface flex items-center gap-2">
-                <span className="material-symbols-outlined text-outline">cloud</span>
-                Deployment Plan
-              </h3>
-              <span className="px-3 py-1 rounded bg-surface-variant/50 border border-outline-variant/30 text-on-surface text-[11px] font-code-sm font-bold tracking-widest uppercase">
-                Active
-              </span>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Staging */}
-              <div className="border border-[#262626] rounded-lg p-5 bg-[#0F0F0F] hover:border-outline-variant/50 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h4 className="font-label-md text-label-md text-on-surface">Staging Environment</h4>
-                    <p className="font-code-sm text-xs text-on-surface-variant">Vercel (Preview)</p>
-                  </div>
-                  <span className="material-symbols-outlined text-outline-variant text-[24px]">api</span>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between font-code-sm text-code-sm">
-                    <span className="text-on-surface-variant">URL</span>
-                    <a href="#" className="text-primary hover:underline">staging.forgeai.dev</a>
-                  </div>
-                  <div className="flex justify-between font-code-sm text-code-sm">
-                    <span className="text-on-surface-variant">Last Deploy</span>
-                    <span className="text-on-surface">2 hours ago</span>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Production */}
-              <div className="border border-[#262626] rounded-lg p-5 bg-[#0F0F0F] hover:border-outline-variant/50 transition-colors">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h4 className="font-label-md text-label-md text-on-surface">Production Environment</h4>
-                    <p className="font-code-sm text-xs text-on-surface-variant">AWS ECS (Fargate)</p>
-                  </div>
-                  <span className="material-symbols-outlined text-on-surface text-[24px]">verified</span>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between font-code-sm text-code-sm">
-                    <span className="text-on-surface-variant">URL</span>
-                    <a href="#" className="text-primary hover:underline">app.forgeai.com</a>
-                  </div>
-                  <div className="flex justify-between font-code-sm text-code-sm">
-                    <span className="text-on-surface-variant">Last Deploy</span>
-                    <span className="text-on-surface">Yesterday, 14:30</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+      {/* Loading State */}
+      {isLoading && (
+        <div className="p-16 bg-[#141620] border border-[#232736] rounded-2xl flex flex-col items-center justify-center gap-3 text-center shadow-lg">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+          <p className="text-xs font-mono text-slate-300">Retrieving deployment manifests from AI synthesis engine...</p>
+        </div>
+      )}
+
+      {/* Error Alert */}
+      {errorMsg && (
+        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 p-4 rounded-2xl text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Empty State: No active blueprint */}
+      {!isLoading && !blueprint && (
+        <div className="p-12 bg-[#141620] border border-[#232736] rounded-2xl flex flex-col items-center justify-center text-center gap-4 shadow-xl">
+          <div className="w-14 h-14 rounded-2xl bg-[#1e2232] border border-[#2d3248] text-purple-400 flex items-center justify-center font-bold">
+            <Rocket className="w-7 h-7" />
           </div>
+          <div>
+            <h3 className="text-base font-bold text-white">No Active Blueprint Selected</h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-sm">
+              Generate a full-stack blueprint to produce Docker container manifests and security policies.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/blueprint-ai/new"
+            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Generate Blueprint</span>
+          </Link>
+        </div>
+      )}
+
+      {/* Main Content: Deployment & Security */}
+      {!isLoading && blueprint && (
+        <div className="flex flex-col gap-8">
           
-          {/* CI/CD Pipeline */}
-          <div className="glass-panel border border-[#262626] rounded-xl p-md bg-[#171717]/80">
-            <div className="flex justify-between items-center mb-8">
-              <h3 className="text-headline-md font-headline-md text-on-surface flex items-center gap-2">
-                <span className="material-symbols-outlined text-tertiary">account_tree</span>
-                CI/CD Pipeline (GitHub Actions)
-              </h3>
-              <button className="text-outline-variant hover:text-on-surface transition-colors">
-                <span className="material-symbols-outlined">settings</span>
+          {/* SECTION 1: DOCKER COMPOSE DEPLOYMENT */}
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Server className="w-4 h-4 text-blue-400" /> Container Orchestration (Docker Compose)
+              </h2>
+              <button
+                onClick={handleCopyDeploy}
+                disabled={!deployArtifact}
+                className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 bg-[#181a26] border border-[#2d3248] px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+              >
+                {copiedDeploy ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-400 font-bold">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy YAML</span>
+                  </>
+                )}
               </button>
             </div>
-            
-            <div className="flex flex-col md:flex-row justify-between relative">
-              {/* Connecting Line */}
-              <div className="hidden md:block absolute top-[40px] left-[10%] right-[10%] h-[2px] bg-[#262626] z-0"></div>
-              
-              {/* Step 1: Build */}
-              <div className="flex flex-col items-center relative z-10 w-full md:w-1/4 group mb-6 md:mb-0">
-                <div className="w-full max-w-[140px] h-[100px] bg-[#0F0F0F] border border-[#262626] rounded-xl flex flex-col items-center justify-center p-3 mb-2 shadow-sm transition-colors group-hover:border-primary/50">
-                  <div className="w-8 h-8 rounded-full border border-primary text-primary flex items-center justify-center mb-2 bg-primary/10">
-                    <span className="material-symbols-outlined text-[16px]">check</span>
-                  </div>
-                  <h5 className="font-label-md text-label-md text-on-surface">Build</h5>
-                  <span className="font-code-sm text-[11px] text-on-surface-variant">~2m 15s</span>
+
+            <div className="bg-[#0a0a0e] border border-[#232736] rounded-2xl overflow-hidden shadow-2xl">
+              <div className="bg-[#12141c] px-4 py-2.5 border-b border-[#232736] flex items-center justify-between font-mono text-[11px] text-slate-400">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                  <span className="text-slate-200 font-bold">{deployArtifact?.file_path || "docker/docker-compose.yml"}</span>
                 </div>
+                <span className="text-[10px] text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded">
+                  {deployArtifact ? `${(deployArtifact.file_size_bytes / 1024).toFixed(1)} KB` : "YAML"}
+                </span>
               </div>
-              
-              {/* Step 2: Test */}
-              <div className="flex flex-col items-center relative z-10 w-full md:w-1/4 group mb-6 md:mb-0">
-                <div className="w-full max-w-[140px] h-[100px] bg-[#0F0F0F] border border-[#262626] rounded-xl flex flex-col items-center justify-center p-3 mb-2 shadow-sm transition-colors group-hover:border-primary/50">
-                  <div className="w-8 h-8 rounded-full border border-primary text-primary flex items-center justify-center mb-2 bg-primary/10">
-                    <span className="material-symbols-outlined text-[16px]">check</span>
-                  </div>
-                  <h5 className="font-label-md text-label-md text-on-surface">Test</h5>
-                  <span className="font-code-sm text-[11px] text-on-surface-variant">Jest & Cypress</span>
-                </div>
-              </div>
-              
-              {/* Step 3: Security Scan (Active) */}
-              <div className="flex flex-col items-center relative z-10 w-full md:w-1/4 group mb-6 md:mb-0">
-                <div className="w-full max-w-[140px] h-[100px] bg-[#14141c] border-2 border-primary rounded-xl flex flex-col items-center justify-center p-3 mb-2 shadow-[0_0_15px_rgba(88,86,214,0.15)] relative overflow-hidden">
-                  <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none"></div>
-                  <div className="absolute bottom-0 left-0 h-1 bg-primary animate-pulse w-full"></div>
-                  
-                  <div className="w-8 h-8 rounded-full border border-primary/50 text-primary flex items-center justify-center mb-2 animate-spin-slow">
-                    <span className="material-symbols-outlined text-[16px]">sync</span>
-                  </div>
-                  <h5 className="font-label-md text-label-md text-on-surface">Security Scan</h5>
-                  <span className="font-code-sm text-[11px] text-primary">In Progress...</span>
-                </div>
-              </div>
-              
-              {/* Step 4: Deploy (Pending) */}
-              <div className="flex flex-col items-center relative z-10 w-full md:w-1/4 opacity-50">
-                <div className="w-full max-w-[140px] h-[100px] bg-[#0A0A0A] border border-[#262626] rounded-xl flex flex-col items-center justify-center p-3 mb-2 border-dashed">
-                  <div className="w-8 h-8 rounded-full border border-outline-variant text-outline-variant flex items-center justify-center mb-2">
-                    <span className="material-symbols-outlined text-[16px]">lock</span>
-                  </div>
-                  <h5 className="font-label-md text-label-md text-outline-variant">Deploy</h5>
-                  <span className="font-code-sm text-[11px] text-outline-variant">Pending</span>
-                </div>
-              </div>
+              <pre className="p-5 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed max-h-[500px] overflow-y-auto custom-scrollbar">
+                {deployArtifact?.content || "# No deployment artifact found in this blueprint."}
+              </pre>
             </div>
-            
           </div>
-          
-        </div>
-        
-        {/* Right Column: Security Review */}
-        <div className="w-full xl:w-[380px] flex flex-col shrink-0">
-          <div className="glass-panel border border-[#262626] rounded-xl bg-[#171717]/80 h-full flex flex-col p-6">
-            
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-headline-md font-headline-md text-on-surface flex items-center gap-2">
-                <span className="material-symbols-outlined text-error">security</span>
-                Security Review
-              </h3>
-              <span className="px-3 py-1 rounded bg-surface-variant/50 border border-outline-variant/30 text-on-surface text-[11px] font-code-sm font-bold tracking-widest uppercase flex items-center gap-1">
-                <span className="material-symbols-outlined text-[12px]">search</span>
-                AI Scanned
-              </span>
+
+          {/* SECTION 2: SECURITY POLICY */}
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" /> Enterprise Security & Compliance Policy
+              </h2>
+              <button
+                onClick={handleCopySecurity}
+                disabled={!securityArtifact}
+                className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 bg-[#181a26] border border-[#2d3248] px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+              >
+                {copiedSecurity ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-400 font-bold">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Security Policy</span>
+                  </>
+                )}
+              </button>
             </div>
-            
-            {/* Score Ring */}
-            <div className="flex items-center gap-6 mb-8 p-4 bg-[#0F0F0F] rounded-lg border border-[#262626]">
-              <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
-                {/* SVG Ring */}
-                <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 36 36">
-                  {/* Background Circle */}
-                  <path
-                    className="text-surface-variant"
-                    strokeWidth="3"
-                    stroke="currentColor"
-                    fill="none"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                  {/* Progress Circle (85%) */}
-                  <path
-                    className="text-primary"
-                    strokeWidth="3"
-                    strokeDasharray="85, 100"
-                    strokeLinecap="round"
-                    stroke="currentColor"
-                    fill="none"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="font-display-xl text-xl font-bold text-on-surface">85<span className="text-[10px]">%</span></span>
+
+            <div className="bg-[#0a0a0e] border border-[#232736] rounded-2xl overflow-hidden shadow-2xl">
+              <div className="bg-[#12141c] px-4 py-2.5 border-b border-[#232736] flex items-center justify-between font-mono text-[11px] text-slate-400">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                  <span className="text-slate-200 font-bold">{securityArtifact?.file_path || "security/SECURITY_POLICY.md"}</span>
                 </div>
+                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                  {securityArtifact ? `${(securityArtifact.file_size_bytes / 1024).toFixed(1)} KB` : "Markdown"}
+                </span>
               </div>
-              <div>
-                <p className="font-label-md text-label-md text-on-surface">Compliance Score</p>
-                <p className="font-code-sm text-xs text-on-surface-variant mt-1">2 items require attention</p>
-              </div>
+              <pre className="p-5 font-mono text-xs text-slate-200 overflow-x-auto leading-relaxed max-h-[500px] overflow-y-auto custom-scrollbar">
+                {securityArtifact?.content || "# No security artifact found in this blueprint."}
+              </pre>
             </div>
-            
-            {/* Checklist */}
-            <div className="flex-1 space-y-4">
-              
-              <div className="flex items-start gap-4">
-                <span className="material-symbols-outlined text-primary mt-0.5">check_circle</span>
-                <div>
-                  <h5 className="font-label-md text-label-md text-on-surface mb-1">OWASP Top 10 Mitigation</h5>
-                  <p className="font-body-sm text-[13px] text-on-surface-variant">WAF configured and input validation verified.</p>
-                </div>
-              </div>
-              
-              <div className="bg-[#1A150D] border border-tertiary/30 rounded-lg p-4 relative overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-tertiary"></div>
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-tertiary text-[18px]">warning</span>
-                    <h5 className="font-label-md text-label-md text-tertiary">GDPR Data Residency</h5>
-                  </div>
-                  <span className="text-[10px] font-code-sm font-bold tracking-widest text-tertiary uppercase border border-tertiary/40 px-2 rounded bg-tertiary/10">Medium</span>
-                </div>
-                <p className="font-body-sm text-[13px] text-on-surface-variant mt-2 ml-6">Verify EU-central-1 bucket replication rules.</p>
-              </div>
-              
-              <div className="bg-[#240A0D] border border-error/30 rounded-lg p-4 relative overflow-hidden">
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-error"></div>
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-error text-[18px]">error</span>
-                    <h5 className="font-label-md text-label-md text-error">RBAC Policy Review</h5>
-                  </div>
-                  <span className="text-[10px] font-code-sm font-bold tracking-widest text-error uppercase border border-error/40 px-2 rounded bg-error/10">High</span>
-                </div>
-                <p className="font-body-sm text-[13px] text-on-surface-variant mt-2 ml-6">Admin role has overly permissive S3 access.</p>
-              </div>
-              
-            </div>
-            
-            <button className="w-full mt-6 btn-secondary py-2.5 rounded-lg font-label-md text-label-md flex items-center justify-center gap-2 text-on-surface hover:bg-surface-variant/30 transition-colors">
-              <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-              Run Full Audit
-            </button>
-            
           </div>
+
         </div>
-        
-      </div>
-      
+      )}
+
     </div>
   )
 }
+
+export default function DeploymentPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="w-full h-96 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+          <p className="text-xs font-mono text-slate-400">Loading Deployment & Security Plan...</p>
+        </div>
+      }
+    >
+      <DeploymentPlanContent />
+    </Suspense>
+  )
+}
+
