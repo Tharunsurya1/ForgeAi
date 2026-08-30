@@ -1,8 +1,13 @@
+from datetime import datetime, timezone, timedelta
 import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.organization import Organization
+from app.models.organization_invitation import OrganizationInvitation
 from app.models.organization_member import OrganizationMember
+from app.models.team import Team
+from app.models.team_member import TeamMember
 from app.models.user import User
 
 
@@ -66,66 +71,357 @@ def test_list_and_create_organization(client: TestClient):
     assert len(list_res2.json()) >= 2
 
 
-def test_list_organization_members(client: TestClient):
-    """Test listing members of an organization."""
-    user_id, email, token = _create_user_and_login(client, prefix="listmem")
+def test_update_and_delete_organization(client: TestClient):
+    """Test updating organization settings and deleting organization."""
+    _, _, owner_token = _create_user_and_login(client, prefix="orgmgr")
+    _, _, member_token = _create_user_and_login(client, prefix="orgother")
 
-    list_res = client.get(
-        "/api/v1/orgs",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    org_id = list_res.json()[0]["id"]
-
-    members_res = client.get(
-        f"/api/v1/orgs/{org_id}/members",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert members_res.status_code == 200
-    members = members_res.json()
-    assert len(members) == 1
-    assert members[0]["user_id"] == user_id
-    assert members[0]["email"] == email.lower()
-    assert members[0]["role"] == "owner"
-
-
-def test_invite_member_and_rbac(client: TestClient, db: Session):
-    """Test owner inviting new members and member RBAC restrictions."""
-    _, _, owner_token = _create_user_and_login(client, prefix="owner")
-    _, member_email, member_token = _create_user_and_login(client, prefix="member")
-
-    # Get owner's org
-    org_res = client.get(
+    # Create Org
+    create_res = client.post(
         "/api/v1/orgs",
         headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "Initial Org Name", "plan_tier": "free"},
     )
-    org_id = org_res.json()[0]["id"]
+    org_id = create_res.json()["id"]
 
-    # 1. Owner invites member as 'member'
+    # Update Org details (Owner allowed)
+    update_res = client.patch(
+        f"/api/v1/orgs/{org_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "Updated Org Name", "plan_tier": "enterprise"},
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["name"] == "Updated Org Name"
+    assert update_res.json()["plan_tier"] == "enterprise"
+
+    # Non-member cannot update (403)
+    unauth_update = client.patch(
+        f"/api/v1/orgs/{org_id}",
+        headers={"Authorization": f"Bearer {member_token}"},
+        json={"name": "Hacked Org Name"},
+    )
+    assert unauth_update.status_code == 403
+
+    # Delete Org (Owner allowed)
+    del_res = client.delete(
+        f"/api/v1/orgs/{org_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert del_res.status_code == 200
+    assert "deleted" in del_res.json()["message"].lower()
+
+    # Get after deletion -> 404
+    get_res = client.get(
+        f"/api/v1/orgs/{org_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert get_res.status_code == 404
+
+
+def test_transfer_ownership_and_leave(client: TestClient, db: Session):
+    """Test transferring ownership to another member and member leaving."""
+    owner_id, owner_email, owner_token = _create_user_and_login(client, prefix="prevowner")
+    member_id, member_email, member_token = _create_user_and_login(client, prefix="newowner")
+
+    # Create Org
+    org_res = client.post(
+        "/api/v1/orgs",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "Ownership Test Workspace"},
+    )
+    org_id = org_res.json()["id"]
+
+    # Add second user as member
     invite_res = client.post(
-        f"/api/v1/orgs/{org_id}/members/invite",
+        f"/api/v1/orgs/{org_id}/invitations",
         headers={"Authorization": f"Bearer {owner_token}"},
         json={"email": member_email, "role": "member"},
     )
     assert invite_res.status_code == 201
-    assert invite_res.json()["email"] == member_email.lower()
-    assert invite_res.json()["role"] == "member"
+    invite_token = invite_res.json()["token"]
 
-    # 2. Duplicate invite should fail with 400
-    dup_res = client.post(
-        f"/api/v1/orgs/{org_id}/members/invite",
+    accept_res = client.post(
+        f"/api/v1/invitations/{invite_token}/accept",
+        headers={"Authorization": f"Bearer {member_token}"},
+    )
+    assert accept_res.status_code == 200
+
+    # Transfer ownership
+    transfer_res = client.post(
+        f"/api/v1/orgs/{org_id}/transfer-ownership",
         headers={"Authorization": f"Bearer {owner_token}"},
-        json={"email": member_email, "role": "member"},
+        json={"new_owner_user_id": member_id},
+    )
+    assert transfer_res.status_code == 200
+
+    # Verify new roles: previous owner is admin, new owner is owner
+    members_res = client.get(
+        f"/api/v1/orgs/{org_id}/members",
+        headers={"Authorization": f"Bearer {member_token}"},
+    )
+    members_map = {m["user_id"]: m["role"] for m in members_res.json()}
+    assert members_map[owner_id] == "admin"
+    assert members_map[member_id] == "owner"
+
+    # Previous owner (now admin) can leave the organization
+    leave_res = client.post(
+        f"/api/v1/orgs/{org_id}/leave",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert leave_res.status_code == 200
+
+    # Sole owner cannot leave without transfer (400)
+    owner_leave_res = client.post(
+        f"/api/v1/orgs/{org_id}/leave",
+        headers={"Authorization": f"Bearer {member_token}"},
+    )
+    assert owner_leave_res.status_code == 400
+
+
+def test_member_role_changes_and_removal(client: TestClient):
+    """Test updating member role and removing member."""
+    owner_id, _, owner_token = _create_user_and_login(client, prefix="roleowner")
+    target_id, target_email, target_token = _create_user_and_login(client, prefix="roletarget")
+
+    org_res = client.post(
+        "/api/v1/orgs",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "Role Management Org"},
+    )
+    org_id = org_res.json()["id"]
+
+    # Invite and accept as member
+    inv = client.post(
+        f"/api/v1/orgs/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"email": target_email, "role": "viewer"},
+    ).json()
+
+    client.post(
+        f"/api/v1/invitations/{inv['token']}/accept",
+        headers={"Authorization": f"Bearer {target_token}"},
+    )
+
+    # 1. Promote Viewer to Admin
+    update_role_res = client.patch(
+        f"/api/v1/orgs/{org_id}/members/{target_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"role": "admin"},
+    )
+    assert update_role_res.status_code == 200
+    assert update_role_res.json()["role"] == "admin"
+
+    # 2. Demote Admin to Member
+    demote_res = client.patch(
+        f"/api/v1/orgs/{org_id}/members/{target_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"role": "member"},
+    )
+    assert demote_res.status_code == 200
+    assert demote_res.json()["role"] == "member"
+
+    # 3. Create a team and add member to team
+    team_res = client.post(
+        f"/api/v1/orgs/{org_id}/teams",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "Frontend Core"},
+    )
+    team_id = team_res.json()["id"]
+
+    add_tm = client.post(
+        f"/api/v1/teams/{team_id}/members",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"user_id": target_id},
+    )
+    assert add_tm.status_code == 201
+
+    # 4. Remove member from Organization -> verify team membership is also purged
+    del_member_res = client.delete(
+        f"/api/v1/orgs/{org_id}/members/{target_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert del_member_res.status_code == 200
+
+    # Team members list should now only contain creator
+    team_mems = client.get(
+        f"/api/v1/teams/{team_id}/members",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    ).json()
+    assert len(team_mems) == 1
+    assert team_mems[0]["user_id"] == owner_id
+
+
+def test_invitation_lifecycle(client: TestClient):
+    """Test full invitation lifecycle: invite, duplicate check, preview, accept, revoke."""
+    _, _, owner_token = _create_user_and_login(client, prefix="invowner")
+    _, invitee_email, invitee_token = _create_user_and_login(client, prefix="invitee")
+
+    org_res = client.get("/api/v1/orgs", headers={"Authorization": f"Bearer {owner_token}"})
+    org_id = org_res.json()[0]["id"]
+
+    # 1. Create Invitation
+    inv_res = client.post(
+        f"/api/v1/orgs/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"email": invitee_email, "role": "member"},
+    )
+    assert inv_res.status_code == 201
+    inv_data = inv_res.json()
+    inv_token = inv_data["token"]
+    inv_id = inv_data["id"]
+    assert inv_data["email"] == invitee_email.lower()
+    assert inv_data["status"] == "pending"
+
+    # 2. Duplicate active invitation fails with 400
+    dup_res = client.post(
+        f"/api/v1/orgs/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"email": invitee_email, "role": "member"},
     )
     assert dup_res.status_code == 400
 
-    # 3. Regular member attempts to invite someone else (should fail with 403 Forbidden)
-    third_email = f"third_{uuid.uuid4().hex[:8]}@testforgeai.com"
-    denied_res = client.post(
-        f"/api/v1/orgs/{org_id}/members/invite",
-        headers={"Authorization": f"Bearer {member_token}"},
-        json={"email": third_email, "role": "viewer"},
+    # 3. Public Preview
+    preview_res = client.get(f"/api/v1/invitations/{inv_token}")
+    assert preview_res.status_code == 200
+    preview_data = preview_res.json()
+    assert preview_data["email"] == invitee_email.lower()
+    assert preview_data["is_expired"] is False
+
+    # 4. List Invitations
+    list_inv = client.get(
+        f"/api/v1/orgs/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
     )
-    assert denied_res.status_code == 403
+    assert list_inv.status_code == 200
+    assert len(list_inv.json()) >= 1
+
+    # 5. Accept Invitation
+    accept_res = client.post(
+        f"/api/v1/invitations/{inv_token}/accept",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert accept_res.status_code == 200
+    assert "accepted" in accept_res.json()["message"].lower()
+
+    # 6. Accepting again fails with 400
+    accept_again = client.post(
+        f"/api/v1/invitations/{inv_token}/accept",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert accept_again.status_code == 400
+
+    # 7. Revoke flow: create new invitation and revoke
+    other_email = f"other_{uuid.uuid4().hex[:8]}@testforgeai.com"
+    inv2_res = client.post(
+        f"/api/v1/orgs/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"email": other_email, "role": "viewer"},
+    )
+    inv2_id = inv2_res.json()["id"]
+    inv2_token = inv2_res.json()["token"]
+
+    revoke_res = client.delete(
+        f"/api/v1/orgs/{org_id}/invitations/{inv2_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert revoke_res.status_code == 200
+
+    # Accepting revoked invitation fails with 400
+    _, _, other_token = _create_user_and_login(client, prefix="otheruser")
+    accept_revoked = client.post(
+        f"/api/v1/invitations/{inv2_token}/accept",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert accept_revoked.status_code == 400
+
+
+def test_team_lifecycle_and_members(client: TestClient):
+    """Test creating a team, updating team, adding members, and deleting a team."""
+    owner_id, _, owner_token = _create_user_and_login(client, prefix="teamowner")
+    member_user_id, member_email, member_token = _create_user_and_login(client, prefix="teammem")
+
+    org_res = client.get("/api/v1/orgs", headers={"Authorization": f"Bearer {owner_token}"})
+    org_id = org_res.json()[0]["id"]
+
+    # Add member to org first via invitation
+    inv = client.post(
+        f"/api/v1/orgs/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"email": member_email, "role": "member"},
+    ).json()
+
+    client.post(
+        f"/api/v1/invitations/{inv['token']}/accept",
+        headers={"Authorization": f"Bearer {member_token}"},
+    )
+
+    # 1. Create Team under Org
+    create_team_res = client.post(
+        f"/api/v1/orgs/{org_id}/teams",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "AI Architecture Guild", "description": "Core ML and Rust systems"},
+    )
+    assert create_team_res.status_code == 201
+    team = create_team_res.json()
+    team_id = team["id"]
+    assert team["name"] == "AI Architecture Guild"
+    assert team["member_count"] == 1  # creator included
+
+    # Duplicate team name in same org fails with 400
+    dup_team = client.post(
+        f"/api/v1/orgs/{org_id}/teams",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "AI Architecture Guild"},
+    )
+    assert dup_team.status_code == 400
+
+    # 2. Update Team
+    update_team_res = client.patch(
+        f"/api/v1/teams/{team_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "AI Architecture & Systems", "description": "Updated description"},
+    )
+    assert update_team_res.status_code == 200
+    assert update_team_res.json()["name"] == "AI Architecture & Systems"
+
+    # 3. Add second member to team
+    add_mem_res = client.post(
+        f"/api/v1/teams/{team_id}/members",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"user_id": member_user_id},
+    )
+    assert add_mem_res.status_code == 201
+    assert add_mem_res.json()["email"] == member_email.lower()
+
+    # 4. List team members
+    team_members_res = client.get(
+        f"/api/v1/teams/{team_id}/members",
+        headers={"Authorization": f"Bearer {member_token}"},
+    )
+    assert team_members_res.status_code == 200
+    assert len(team_members_res.json()) == 2
+
+    # 5. Remove member from team
+    del_tm_res = client.delete(
+        f"/api/v1/teams/{team_id}/members/{member_user_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert del_tm_res.status_code == 200
+
+    # Verify team member count is back to 1
+    team_after_remove = client.get(
+        f"/api/v1/teams/{team_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert team_after_remove.json()["member_count"] == 1
+
+    # 6. Delete team
+    del_res = client.delete(
+        f"/api/v1/teams/{team_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert del_res.status_code == 200
+    assert "deleted" in del_res.json()["message"].lower()
 
 
 def test_tenant_isolation(client: TestClient):
@@ -157,88 +453,3 @@ def test_tenant_isolation(client: TestClient):
         headers={"Authorization": f"Bearer {token_b}"},
     )
     assert unauth_teams.status_code == 403
-
-
-def test_team_lifecycle_and_members(client: TestClient):
-    """Test creating a team, listing teams, adding members, and deleting a team."""
-    _, _, owner_token = _create_user_and_login(client, prefix="teamowner")
-    member_user_id, member_email, member_token = _create_user_and_login(client, prefix="teammem")
-
-    org_res = client.get("/api/v1/orgs", headers={"Authorization": f"Bearer {owner_token}"})
-    org_id = org_res.json()[0]["id"]
-
-    # Add member to org first
-    client.post(
-        f"/api/v1/orgs/{org_id}/members/invite",
-        headers={"Authorization": f"Bearer {owner_token}"},
-        json={"email": member_email, "role": "member"},
-    )
-
-    # 1. Create Team under Org
-    create_team_res = client.post(
-        f"/api/v1/orgs/{org_id}/teams",
-        headers={"Authorization": f"Bearer {owner_token}"},
-        json={"name": "AI Architecture Guild", "description": "Core ML and Rust systems"},
-    )
-    assert create_team_res.status_code == 201
-    team = create_team_res.json()
-    team_id = team["id"]
-    assert team["name"] == "AI Architecture Guild"
-    assert team["member_count"] == 1  # creator included
-
-    # 2. List teams
-    teams_list_res = client.get(
-        f"/api/v1/orgs/{org_id}/teams",
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    assert teams_list_res.status_code == 200
-    assert len(teams_list_res.json()) >= 1
-
-    # 3. Add second member to team
-    add_mem_res = client.post(
-        f"/api/v1/teams/{team_id}/members",
-        headers={"Authorization": f"Bearer {owner_token}"},
-        json={"user_id": member_user_id},
-    )
-    assert add_mem_res.status_code == 201
-    assert add_mem_res.json()["email"] == member_email.lower()
-
-    # 4. List team members
-    team_members_res = client.get(
-        f"/api/v1/teams/{team_id}/members",
-        headers={"Authorization": f"Bearer {member_token}"},
-    )
-    assert team_members_res.status_code == 200
-    assert len(team_members_res.json()) == 2
-
-    # 5. Delete team
-    del_res = client.delete(
-        f"/api/v1/teams/{team_id}",
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    assert del_res.status_code == 200
-    assert "deleted" in del_res.json()["message"].lower()
-
-
-def test_team_creation_rbac_viewer_denial(client: TestClient):
-    """Test that a viewer role in an organization cannot create teams."""
-    _, _, owner_token = _create_user_and_login(client, prefix="viewerowner")
-    _, viewer_email, viewer_token = _create_user_and_login(client, prefix="vieweruser")
-
-    org_res = client.get("/api/v1/orgs", headers={"Authorization": f"Bearer {owner_token}"})
-    org_id = org_res.json()[0]["id"]
-
-    # Add as viewer
-    client.post(
-        f"/api/v1/orgs/{org_id}/members/invite",
-        headers={"Authorization": f"Bearer {owner_token}"},
-        json={"email": viewer_email, "role": "viewer"},
-    )
-
-    # Viewer attempts to create team -> 403 Forbidden
-    create_res = client.post(
-        f"/api/v1/orgs/{org_id}/teams",
-        headers={"Authorization": f"Bearer {viewer_token}"},
-        json={"name": "Unauthorized Viewer Team"},
-    )
-    assert create_res.status_code == 403

@@ -7,18 +7,38 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.database.database import engine
 
+from app.database.base import Base
+import app.models  # noqa: F401
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Verify database connection
+    # Startup: Verify database connection and create missing tables
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
             conn.execute(text("SELECT 1"))
-            print("Successfully connected to the database!", flush=True)
+            conn.execute(text("ALTER TABLE teams ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS organization_invitations (
+                    id UUID PRIMARY KEY,
+                    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                    email VARCHAR(255) NOT NULL,
+                    role VARCHAR(50) NOT NULL DEFAULT 'member',
+                    token VARCHAR(100) NOT NULL UNIQUE,
+                    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                    invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            print("Successfully connected to the database and verified tables!", flush=True)
+        Base.metadata.create_all(bind=engine)
     except Exception as e:
         print(f"Warning: Could not connect to the database. Error: {e}", flush=True)
         print("Please check your .env file credentials and ensure PostgreSQL is running.", flush=True)
     yield
     # Shutdown logic can go here
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

@@ -19,6 +19,20 @@ class TeamCreateRequest(BaseModel):
     )
 
 
+class TeamUpdateRequest(BaseModel):
+    name: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=150,
+        description="Updated team name",
+    )
+    description: Optional[str] = Field(
+        None,
+        max_length=1000,
+        description="Updated team description",
+    )
+
+
 class TeamResponse(BaseModel):
     id: UUID
     organization_id: UUID
@@ -26,6 +40,7 @@ class TeamResponse(BaseModel):
     description: Optional[str] = None
     member_count: int = 0
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

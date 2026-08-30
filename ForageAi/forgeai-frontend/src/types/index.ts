@@ -96,6 +96,36 @@ export interface OrganizationMember {
   created_at: string;
 }
 
+export interface OrganizationInvitation {
+  id: string;
+  organization_id: string;
+  organization_name?: string;
+  email: string;
+  role: "owner" | "admin" | "member" | "viewer" | string;
+  token: string;
+  status: "pending" | "accepted" | "rejected" | "revoked" | "expired" | string;
+  invited_by?: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface InvitationPublic {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  organization_slug: string;
+  email: string;
+  role: string;
+  expires_at: string;
+  is_expired: boolean;
+}
+
+export interface InvitationAction {
+  message: string;
+  organization_id: string;
+  role: string;
+}
+
 export interface Team {
   id: string;
   organization_id: string;
@@ -103,6 +133,7 @@ export interface Team {
   description?: string | null;
   member_count: number;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface TeamMember {

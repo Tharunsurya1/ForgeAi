@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.organization_member import OrganizationMember
+from app.models.organization_invitation import OrganizationInvitation
 from app.models.team import Team
 from app.models.team_member import TeamMember
 from app.models.project import Project
@@ -17,6 +18,7 @@ __all__ = [
     "User",
     "Organization",
     "OrganizationMember",
+    "OrganizationInvitation",
     "Team",
     "TeamMember",
     "Project",
@@ -29,3 +31,4 @@ __all__ = [
     "UserSession",
     "OAuthAccount",
 ]
+

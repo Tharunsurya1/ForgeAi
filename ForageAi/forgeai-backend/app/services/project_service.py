@@ -7,6 +7,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.rbac import (
+    OrgRole,
+    Permission,
+    check_permission,
+)
 from app.models.organization import Organization
 from app.models.organization_member import OrganizationMember
 from app.models.project import Project
@@ -46,7 +51,7 @@ class ProjectService:
         member = OrganizationMember(
             organization_id=org.id,
             user_id=user.id,
-            role="owner",
+            role=OrgRole.OWNER.value,
         )
         db.add(member)
         db.commit()
@@ -57,9 +62,9 @@ class ProjectService:
     def create_project(db: Session, user: User, data: ProjectCreate) -> Project:
         """
         Create a new software project under the target or default organization.
+        Enforces tenant membership and PROJECT_CREATE permission.
         """
         if data.organization_id:
-            # Check user membership in the specified organization
             membership = (
                 db.query(OrganizationMember)
                 .filter(
@@ -74,9 +79,18 @@ class ProjectService:
                     detail="User does not have access to this organization",
                 )
             target_org_id = data.organization_id
+            caller_role = membership.role if membership else OrgRole.OWNER.value
         else:
             org = ProjectService.get_or_create_user_org(db, user)
             target_org_id = org.id
+            caller_role = OrgRole.OWNER.value
+
+        check_permission(
+            role=caller_role,
+            permission=Permission.PROJECT_CREATE,
+            is_superuser=user.is_superuser,
+            custom_error_message="Permission denied: Viewers cannot create projects",
+        )
 
         # Generate unique slug within the organization
         base_slug = re.sub(r"[^a-z0-9]+", "-", data.name.lower()).strip("-") or "project"
@@ -99,7 +113,7 @@ class ProjectService:
         db.add(new_project)
         db.flush()
 
-        # Add project member
+        # Add project creator as project admin
         member = ProjectMember(
             project_id=new_project.id,
             user_id=user.id,
@@ -115,7 +129,6 @@ class ProjectService:
         """
         Retrieve all projects accessible to the user across member organizations.
         """
-        # User's organization IDs
         org_ids = [
             m.organization_id
             for m in db.query(OrganizationMember.organization_id)
@@ -166,9 +179,25 @@ class ProjectService:
     @staticmethod
     def update_project(db: Session, project_id: UUID, user: User, data: ProjectUpdate) -> Project:
         """
-        Update project details.
+        Update project details. Requires PROJECT_UPDATE permission.
         """
         project = ProjectService.get_project_by_id(db, project_id, user)
+        membership = (
+            db.query(OrganizationMember)
+            .filter(
+                OrganizationMember.organization_id == project.organization_id,
+                OrganizationMember.user_id == user.id,
+            )
+            .first()
+        )
+        caller_role = membership.role if membership else OrgRole.OWNER.value
+        check_permission(
+            role=caller_role,
+            permission=Permission.PROJECT_UPDATE,
+            is_superuser=user.is_superuser,
+            custom_error_message="Permission denied: Viewers cannot update projects",
+        )
+
         if data.name is not None:
             project.name = data.name.strip()
         if data.description is not None:
@@ -187,9 +216,25 @@ class ProjectService:
     @staticmethod
     def delete_project(db: Session, project_id: UUID, user: User) -> bool:
         """
-        Delete a project.
+        Delete a project. Requires PROJECT_DELETE permission.
         """
         project = ProjectService.get_project_by_id(db, project_id, user)
+        membership = (
+            db.query(OrganizationMember)
+            .filter(
+                OrganizationMember.organization_id == project.organization_id,
+                OrganizationMember.user_id == user.id,
+            )
+            .first()
+        )
+        caller_role = membership.role if membership else OrgRole.OWNER.value
+        check_permission(
+            role=caller_role,
+            permission=Permission.PROJECT_DELETE,
+            is_superuser=user.is_superuser,
+            custom_error_message="Permission denied: Only organization owners and admins can delete projects",
+        )
+
         db.delete(project)
         db.commit()
         return True

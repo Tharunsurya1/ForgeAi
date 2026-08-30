@@ -1,6 +1,9 @@
 import {
   Blueprint,
+  InvitationAction,
+  InvitationPublic,
   Organization,
+  OrganizationInvitation,
   OrganizationMember,
   Project,
   Team,
@@ -141,6 +144,10 @@ async function fetchClient<T>(endpoint: string, options: RequestOptions = {}): P
     throw new Error(errorDetail);
   }
 
+  if (response.status === 204) {
+    return {} as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
@@ -161,6 +168,30 @@ export const authApi = {
     });
     authStorage.setAuth(response);
     return response;
+  },
+
+  async refreshToken(refreshToken: string): Promise<TokenResponse> {
+    const response = await fetchClient<TokenResponse>("/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      requiresAuth: false,
+    });
+    authStorage.setAuth(response);
+    return response;
+  },
+
+  async logout(refreshToken?: string): Promise<{ message: string }> {
+    try {
+      const token = refreshToken || authStorage.getRefreshToken() || "";
+      const res = await fetchClient<{ message: string }>("/auth/logout", {
+        method: "POST",
+        body: JSON.stringify({ refresh_token: token }),
+        requiresAuth: true,
+      });
+      return res;
+    } finally {
+      authStorage.clearAuth();
+    }
   },
 
   async getMe(): Promise<User> {
@@ -194,42 +225,16 @@ export const authApi = {
     });
   },
 
-  async refresh(): Promise<TokenResponse> {
-    const refreshToken = authStorage.getRefreshToken();
-    if (!refreshToken) {
-      throw new Error("No refresh token available");
-    }
-    const response = await fetchClient<TokenResponse>("/auth/refresh", {
+  async revokeOtherSessions(): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>("/auth/sessions/revoke-others", {
       method: "POST",
-      body: JSON.stringify({ refresh_token: refreshToken }),
-      requiresAuth: false,
+      requiresAuth: true,
     });
-    authStorage.setAuth(response);
-    return response;
   },
 
-  async logout(): Promise<void> {
-    try {
-      const refreshToken = authStorage.getRefreshToken();
-      if (refreshToken) {
-        await fetchClient("/auth/logout", {
-          method: "POST",
-          body: JSON.stringify({ refresh_token: refreshToken }),
-          requiresAuth: true,
-        });
-      }
-    } catch (e) {
-      console.error("Logout request error:", e);
-    } finally {
-      authStorage.clearAuth();
-    }
-  },
-
-  async logoutAllOther(): Promise<void> {
-    const refreshToken = authStorage.getRefreshToken();
-    await fetchClient("/auth/logout", {
+  async logoutAllOther(): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>("/auth/sessions/revoke-others", {
       method: "POST",
-      body: JSON.stringify({ refresh_token: refreshToken, all_other: true }),
       requiresAuth: true,
     });
   },
@@ -246,6 +251,7 @@ export const projectsApi = {
   async create(data: {
     name: string;
     description?: string;
+    organization_id?: string;
     tech_stack?: Record<string, any>;
     repository_url?: string;
   }): Promise<Project> {
@@ -259,6 +265,23 @@ export const projectsApi = {
   async get(projectId: string): Promise<Project> {
     return fetchClient<Project>(`/projects/${projectId}`, {
       method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async update(
+    projectId: string,
+    data: {
+      name?: string;
+      description?: string;
+      tech_stack?: Record<string, any>;
+      repository_url?: string;
+      status?: string;
+    }
+  ): Promise<Project> {
+    return fetchClient<Project>(`/projects/${projectId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
       requiresAuth: true,
     });
   },
@@ -287,15 +310,29 @@ export const blueprintsApi = {
     });
   },
 
-  async get(blueprintId: string): Promise<Blueprint> {
-    return fetchClient<Blueprint>(`/blueprints/${blueprintId}`, {
+  async getLatest(projectId: string): Promise<Blueprint> {
+    return fetchClient<Blueprint>(`/blueprints/latest/${projectId}`, {
       method: "GET",
       requiresAuth: true,
     });
   },
 
   async getLatestForProject(projectId: string): Promise<Blueprint> {
-    return fetchClient<Blueprint>(`/blueprints/project/${projectId}`, {
+    return fetchClient<Blueprint>(`/blueprints/latest/${projectId}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async getById(blueprintId: string): Promise<Blueprint> {
+    return fetchClient<Blueprint>(`/blueprints/${blueprintId}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async get(blueprintId: string): Promise<Blueprint> {
+    return fetchClient<Blueprint>(`/blueprints/${blueprintId}`, {
       method: "GET",
       requiresAuth: true,
     });
@@ -325,8 +362,70 @@ export const orgsApi = {
     });
   },
 
+  async update(
+    orgId: string,
+    data: { name?: string; logo_url?: string; plan_tier?: string; billing_email?: string }
+  ): Promise<Organization> {
+    return fetchClient<Organization>(`/orgs/${orgId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+
+  async delete(orgId: string): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>(`/orgs/${orgId}`, {
+      method: "DELETE",
+      requiresAuth: true,
+    });
+  },
+
+  async transferOwnership(
+    orgId: string,
+    data: { new_owner_user_id: string }
+  ): Promise<Organization> {
+    return fetchClient<Organization>(`/orgs/${orgId}/transfer-ownership`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+
+  async leave(orgId: string): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>(`/orgs/${orgId}/leave`, {
+      method: "POST",
+      requiresAuth: true,
+    });
+  },
+
   async listMembers(orgId: string): Promise<OrganizationMember[]> {
     return fetchClient<OrganizationMember[]>(`/orgs/${orgId}/members`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async updateMemberRole(
+    orgId: string,
+    userId: string,
+    data: { role: string }
+  ): Promise<OrganizationMember> {
+    return fetchClient<OrganizationMember>(`/orgs/${orgId}/members/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+
+  async removeMember(orgId: string, userId: string): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>(`/orgs/${orgId}/members/${userId}`, {
+      method: "DELETE",
+      requiresAuth: true,
+    });
+  },
+
+  async listInvitations(orgId: string): Promise<OrganizationInvitation[]> {
+    return fetchClient<OrganizationInvitation[]>(`/orgs/${orgId}/invitations`, {
       method: "GET",
       requiresAuth: true,
     });
@@ -335,10 +434,17 @@ export const orgsApi = {
   async inviteMember(
     orgId: string,
     data: { email: string; role?: string }
-  ): Promise<OrganizationMember> {
-    return fetchClient<OrganizationMember>(`/orgs/${orgId}/members/invite`, {
+  ): Promise<OrganizationInvitation> {
+    return fetchClient<OrganizationInvitation>(`/orgs/${orgId}/invitations`, {
       method: "POST",
       body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+
+  async revokeInvitation(orgId: string, invitationId: string): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>(`/orgs/${orgId}/invitations/${invitationId}`, {
+      method: "DELETE",
       requiresAuth: true,
     });
   },
@@ -362,10 +468,44 @@ export const orgsApi = {
   },
 };
 
+export const invitationsApi = {
+  async getPreview(token: string): Promise<InvitationPublic> {
+    return fetchClient<InvitationPublic>(`/invitations/${token}`, {
+      method: "GET",
+      requiresAuth: false,
+    });
+  },
+
+  async accept(token: string): Promise<InvitationAction> {
+    return fetchClient<InvitationAction>(`/invitations/${token}/accept`, {
+      method: "POST",
+      requiresAuth: true,
+    });
+  },
+
+  async reject(token: string): Promise<InvitationAction> {
+    return fetchClient<InvitationAction>(`/invitations/${token}/reject`, {
+      method: "POST",
+      requiresAuth: true,
+    });
+  },
+};
+
 export const teamsApi = {
   async get(teamId: string): Promise<Team> {
     return fetchClient<Team>(`/teams/${teamId}`, {
       method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async update(
+    teamId: string,
+    data: { name?: string; description?: string }
+  ): Promise<Team> {
+    return fetchClient<Team>(`/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
       requiresAuth: true,
     });
   },
@@ -381,6 +521,13 @@ export const teamsApi = {
     return fetchClient<TeamMember>(`/teams/${teamId}/members`, {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
+      requiresAuth: true,
+    });
+  },
+
+  async removeMember(teamId: string, userId: string): Promise<{ message: string }> {
+    return fetchClient<{ message: string }>(`/teams/${teamId}/members/${userId}`, {
+      method: "DELETE",
       requiresAuth: true,
     });
   },

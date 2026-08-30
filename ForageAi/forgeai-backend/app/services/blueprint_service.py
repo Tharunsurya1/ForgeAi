@@ -5,8 +5,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.ai.blueprint_generator import MultiAgentBlueprintEngine
+from app.core.rbac import OrgRole, Permission, check_permission
 from app.models.blueprint import Blueprint
 from app.models.blueprint_artifact import BlueprintArtifact
+from app.models.organization_member import OrganizationMember
 from app.models.user import User
 from app.schemas.blueprint import BlueprintGenerateRequest
 from app.services.project_service import ProjectService
@@ -24,6 +26,23 @@ class BlueprintService:
         Generate software blueprint artifacts via AI Multi-Agent engine and persist to PostgreSQL.
         """
         project = ProjectService.get_project_by_id(db, project_id, user)
+
+        # RBAC Check: Viewers cannot generate blueprints
+        membership = (
+            db.query(OrganizationMember)
+            .filter(
+                OrganizationMember.organization_id == project.organization_id,
+                OrganizationMember.user_id == user.id,
+            )
+            .first()
+        )
+        caller_role = membership.role if membership else OrgRole.OWNER.value
+        check_permission(
+            role=caller_role,
+            permission=Permission.BLUEPRINT_GENERATE,
+            is_superuser=user.is_superuser,
+            custom_error_message="Permission denied: Viewers cannot generate blueprints",
+        )
 
         # Determine version
         existing_blueprint = (

@@ -15,10 +15,16 @@ from app.schemas.blueprint import (
     BlueprintResponse,
 )
 from app.schemas.organization import (
+    InvitationActionResponse,
+    InvitationPublicResponse,
     MemberInviteRequest,
+    MemberRoleUpdateRequest,
     OrganizationCreateRequest,
+    OrganizationInvitationResponse,
     OrganizationMemberResponse,
     OrganizationResponse,
+    OrganizationUpdateRequest,
+    TransferOwnershipRequest,
 )
 from app.schemas.project import (
     ProjectCreate,
@@ -31,6 +37,7 @@ from app.schemas.team import (
     TeamCreateRequest,
     TeamMemberResponse,
     TeamResponse,
+    TeamUpdateRequest,
 )
 
 __all__ = [
@@ -52,10 +59,17 @@ __all__ = [
     "BlueprintResponse",
     "OrganizationResponse",
     "OrganizationCreateRequest",
+    "OrganizationUpdateRequest",
     "OrganizationMemberResponse",
     "MemberInviteRequest",
+    "MemberRoleUpdateRequest",
+    "TransferOwnershipRequest",
+    "OrganizationInvitationResponse",
+    "InvitationPublicResponse",
+    "InvitationActionResponse",
     "TeamResponse",
     "TeamCreateRequest",
+    "TeamUpdateRequest",
     "TeamMemberResponse",
     "TeamAddMemberRequest",
 ]

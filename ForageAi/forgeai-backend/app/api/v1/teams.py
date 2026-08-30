@@ -11,6 +11,7 @@ from app.schemas.team import (
     TeamAddMemberRequest,
     TeamMemberResponse,
     TeamResponse,
+    TeamUpdateRequest,
 )
 from app.services.team_service import TeamService
 
@@ -44,7 +45,48 @@ def get_team(
         description=team.description,
         member_count=len(members),
         created_at=team.created_at,
+        updated_at=team.updated_at,
     )
+
+
+@router.patch(
+    "/{team_id}",
+    response_model=TeamResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update team details",
+)
+def update_team(
+    team_id: UUID,
+    data: TeamUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update team name or description. Requires TEAM_UPDATE.
+    """
+    return TeamService.update_team(
+        db=db, user=current_user, team_id=team_id, data=data
+    )
+
+
+@router.delete(
+    "/{team_id}",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Delete team",
+)
+def delete_team(
+    team_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Delete a team. Requires TEAM_DELETE (Owner or Admin).
+    """
+    TeamService.delete_team(
+        db=db, user=current_user, team_id=team_id
+    )
+    return MessageResponse(message="Team successfully deleted")
 
 
 @router.get(
@@ -90,20 +132,24 @@ def add_team_member(
 
 
 @router.delete(
-    "/{team_id}",
+    "/{team_id}/members/{user_id}",
     response_model=MessageResponse,
     status_code=status.HTTP_200_OK,
-    summary="Delete team",
+    summary="Remove member from team",
 )
-def delete_team(
+def remove_team_member(
     team_id: UUID,
+    user_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Delete a team. Requires owner or admin role in the organization.
+    Remove a member from a team. Requires TEAM_MANAGE_MEMBERS or self-removal.
     """
-    TeamService.delete_team(
-        db=db, user=current_user, team_id=team_id
+    TeamService.remove_team_member(
+        db=db,
+        user=current_user,
+        team_id=team_id,
+        target_user_id=user_id,
     )
-    return MessageResponse(message="Team successfully deleted")
+    return MessageResponse(message="Team member successfully removed")
