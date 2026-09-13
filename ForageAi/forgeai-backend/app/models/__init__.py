@@ -13,6 +13,9 @@ from app.models.blueprint_artifact import BlueprintArtifact
 from app.models.subscription import Subscription
 from app.models.user_session import UserSession
 from app.models.oauth_account import OAuthAccount
+from app.models.workflow_execution import WorkflowExecution
+from app.models.agent_run import AgentRun
+from app.models.workflow_event import WorkflowEvent
 
 __all__ = [
     "User",
@@ -30,5 +33,8 @@ __all__ = [
     "Subscription",
     "UserSession",
     "OAuthAccount",
+    "WorkflowExecution",
+    "AgentRun",
+    "WorkflowEvent",
 ]
 

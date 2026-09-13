@@ -4,8 +4,8 @@ import * as React from "react"
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Sparkles, ArrowLeft, ArrowRight, Loader2, AlertCircle, ShoppingCart, Users, Bot } from "lucide-react"
-import { blueprintsApi, projectsApi } from "@/lib/api"
+import { Sparkles, ArrowLeft, ArrowRight, Loader2, AlertCircle, ShoppingCart, Users, Bot, Workflow } from "lucide-react"
+import { blueprintsApi, projectsApi, workflowsApi } from "@/lib/api"
 
 export default function NewProjectPage() {
   const router = useRouter()
@@ -66,6 +66,50 @@ export default function NewProjectPage() {
     }
   }
 
+  const handleStreamLive = async () => {
+    if (!prompt.trim()) {
+      setErrorMsg("Please provide a description of the application to blueprint.")
+      return
+    }
+
+    setErrorMsg(null)
+    setIsGenerating(true)
+
+    try {
+      const existingProjects = await projectsApi.list()
+      let activeProject = existingProjects[0]
+
+      if (!activeProject) {
+        const words = prompt.trim().split(" ")
+        const projectName = words.length <= 4 ? prompt.trim() : words.slice(0, 4).join(" ") + " App"
+        activeProject = await projectsApi.create({
+          name: projectName,
+          description: prompt.slice(0, 200),
+          tech_stack: {
+            backend: "FastAPI",
+            frontend: "Next.js 15",
+            database: "PostgreSQL 16",
+          },
+        })
+      }
+
+      const execution = await workflowsApi.execute(
+        activeProject.id,
+        {
+          prompt: prompt.trim(),
+          title: `${activeProject.name} Blueprint`,
+        },
+        true
+      )
+
+      setIsGenerating(false)
+      router.push(`/dashboard/workflows?tab=executions&executionId=${execution.id}`)
+    } catch (err: any) {
+      setIsGenerating(false)
+      setErrorMsg(err.message || "Failed to trigger live workflow execution.")
+    }
+  }
+
   return (
     <div className="max-w-[1440px] mx-auto w-full h-full flex flex-col xl:flex-row gap-6 p-4 md:p-6">
       {/* Left Column: Core Generation Area */}
@@ -117,23 +161,36 @@ export default function NewProjectPage() {
                   (Requirements, DB Schema, Architecture, API, Frontend, Security, Docker)
                 </span>
               </div>
-              <button
-                onClick={handleGenerate}
-                disabled={isGenerating || !prompt.trim()}
-                className="btn-primary px-6 py-2.5 rounded-lg flex items-center gap-2 font-label-md text-sm font-semibold shadow-[0_0_15px_rgba(88,86,214,0.3)] hover:shadow-[0_0_20px_rgba(88,86,214,0.5)] transition-all disabled:opacity-50"
-              >
-                {isGenerating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    Generate Blueprint
-                    <Sparkles className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleStreamLive}
+                  disabled={isGenerating || !prompt.trim()}
+                  className="px-4 py-2.5 rounded-lg bg-[#1a1d2d] hover:bg-[#252a40] text-purple-300 hover:text-white border border-purple-500/30 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Workflow className="w-4 h-4 text-purple-400" />
+                  Stream Live DAG
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleGenerate()}
+                  disabled={isGenerating || !prompt.trim()}
+                  className="btn-primary text-xs flex items-center gap-2 px-5 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20 cursor-pointer"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Synthesizing 14 Agents...
+                    </>
+                  ) : (
+                    <>
+                      Generate Blueprint
+                      <Sparkles className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

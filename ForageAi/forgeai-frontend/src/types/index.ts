@@ -145,3 +145,89 @@ export interface TeamMember {
   avatar_url?: string | null;
   created_at: string;
 }
+
+export interface AgentRun {
+  id: string;
+  workflow_execution_id: string;
+  agent_name: string;
+  status: "pending" | "running" | "completed" | "failed" | "skipped" | string;
+  retry_count: number;
+  execution_time_ms?: number | null;
+  input_payload: Record<string, any>;
+  output_payload?: Record<string, any> | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowEvent {
+  id: string;
+  workflow_execution_id?: string;
+  execution_id?: string;
+  event_type: string;
+  agent_name?: string | null;
+  sequence_number: number;
+  payload: Record<string, any>;
+  message?: string | null;
+  timestamp?: string | null;
+  created_at: string;
+}
+
+export interface WorkflowExecution {
+  id: string;
+  project_id: string;
+  triggered_by_user_id?: string | null;
+  blueprint_id?: string | null;
+  workflow_name: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled" | string;
+  prompt: string;
+  tech_stack: Record<string, any>;
+  current_agent?: string | null;
+  progress_percentage: number;
+  error_message?: string | null;
+  metadata: Record<string, any>;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  agent_runs?: AgentRun[];
+  events?: WorkflowEvent[];
+}
+
+export interface RAGHealth {
+  status: string;
+  url: string;
+  collections_total: number;
+  target_collection: string;
+  collection_exists: boolean;
+  points_count: number;
+  embedding_provider: string;
+  embedding_dimension: number;
+}
+
+export interface RAGIndexResult {
+  status: string;
+  blueprint_id?: string | null;
+  project_id: string;
+  organization_id: string;
+  artifacts_count: number;
+  indexed_chunks: number;
+}
+
+export interface RAGQueryResult {
+  chunk_id: string;
+  artifact_id: string;
+  artifact_type: string;
+  file_path: string;
+  score: number;
+  text: string;
+}
+
+export interface RAGQueryResponse {
+  project_id: string;
+  organization_id: string;
+  query: string;
+  results_count: number;
+  results: RAGQueryResult[];
+}
+

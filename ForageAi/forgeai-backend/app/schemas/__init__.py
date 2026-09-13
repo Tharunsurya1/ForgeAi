@@ -39,6 +39,19 @@ from app.schemas.team import (
     TeamResponse,
     TeamUpdateRequest,
 )
+from app.schemas.workflow import (
+    AgentRunResponse,
+    WorkflowEventResponse,
+    WorkflowExecutionDetailResponse,
+    WorkflowExecutionResponse,
+)
+from app.schemas.rag import (
+    RAGHealthResponse,
+    RAGIndexResponse,
+    RAGQueryRequest,
+    RAGQueryResponse,
+    RAGQueryResultItem,
+)
 
 __all__ = [
     "UserRegisterRequest",
@@ -72,4 +85,9 @@ __all__ = [
     "TeamUpdateRequest",
     "TeamMemberResponse",
     "TeamAddMemberRequest",
+    "WorkflowExecutionResponse",
+    "WorkflowExecutionDetailResponse",
+    "AgentRunResponse",
+    "WorkflowEventResponse",
 ]
+

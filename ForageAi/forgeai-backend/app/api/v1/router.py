@@ -6,6 +6,8 @@ from app.api.v1.invitations import router as invitations_router
 from app.api.v1.organizations import router as organizations_router
 from app.api.v1.projects import router as projects_router
 from app.api.v1.teams import router as teams_router
+from app.api.v1.workflows import router as workflows_router
+from app.api.v1.rag import router as rag_router
 
 api_router = APIRouter()
 
@@ -15,3 +17,7 @@ api_router.include_router(blueprints_router, prefix="/blueprints", tags=["bluepr
 api_router.include_router(organizations_router, prefix="/orgs", tags=["organizations"])
 api_router.include_router(teams_router, prefix="/teams", tags=["teams"])
 api_router.include_router(invitations_router, prefix="/invitations", tags=["invitations"])
+api_router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
+api_router.include_router(rag_router, prefix="/rag", tags=["rag"])
+
+

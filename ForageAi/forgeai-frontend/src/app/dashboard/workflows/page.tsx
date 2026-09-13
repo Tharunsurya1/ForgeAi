@@ -3,7 +3,8 @@
 import * as React from "react"
 import { useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import LiveWorkflowMonitor from "@/components/workflows/LiveWorkflowMonitor"
 import {
   Workflow,
   Sparkles,
@@ -71,13 +72,15 @@ import {
   CheckSquare,
 } from "lucide-react"
 
-export default function WorkflowsPage() {
+function WorkflowsPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const tabParam = searchParams?.get("tab") || (searchParams?.get("executionId") ? "executions" : "all")
 
   // Navigation Tab State (8 Tabs)
   const [activeTab, setActiveTab] = useState<
     "all" | "active" | "draft" | "scheduled" | "templates" | "history" | "executions" | "analytics"
-  >("all")
+  >(tabParam as any)
 
   // Canvas Zoom Level & Fullscreen State
   const [zoomLevel, setZoomLevel] = useState(100)
@@ -813,28 +816,7 @@ export default function WorkflowsPage() {
       {/* TAB 7: LIVE EXECUTIONS STREAMING DASHBOARD */}
       {/* ========================================================================= */}
       {activeTab === "executions" && (
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-start">
-          <div className="xl:col-span-3 bg-[#141620] border border-[#232736] rounded-2xl p-5 shadow-xl flex flex-col gap-4 text-xs font-mono">
-            <div className="flex items-center justify-between border-b border-[#232736] pb-3">
-              <span className="font-bold text-white uppercase text-[11px] flex items-center gap-2"><Radio className="w-4 h-4 text-emerald-400 animate-pulse" /> WebSocket Live Streaming Logs Feed</span>
-              <span className="text-[10px] text-emerald-400">CONNECTED • 60 FPS</span>
-            </div>
-
-            <div className="p-4 bg-[#0a0b10] border border-[#232736] rounded-xl text-slate-300 leading-relaxed max-h-80 overflow-y-auto custom-scrollbar font-mono text-[11px]">
-              <div className="py-1 text-emerald-400">[17:42:01] 🟢 WebSocket connection established to wss://api.forgeai.dev/v1/stream</div>
-              <div className="py-1 text-purple-300">[17:42:02] 🧠 Executing Qdrant vector embedding search query for customer ID #4820</div>
-              <div className="py-1 text-blue-300">[17:42:03] 🤖 Claude 3.5 Sonnet processing prompt context (1,240 tokens)</div>
-              <div className="py-1 text-emerald-400">[17:42:04] ✅ Pipeline #wf-1 completed execution in 380ms with 200 OK response code</div>
-            </div>
-          </div>
-
-          <div className="xl:col-span-1 bg-[#141620] border border-[#232736] rounded-2xl p-5 shadow-xl flex flex-col gap-3 text-xs font-mono">
-            <h4 className="font-bold text-white uppercase text-[11px] border-b border-[#232736] pb-2">Cluster Resources</h4>
-            <div className="p-3 bg-[#0d0e14] rounded-xl border border-[#232736] flex justify-between"><span>CPU Usage:</span><span className="text-emerald-400 font-bold">14%</span></div>
-            <div className="p-3 bg-[#0d0e14] rounded-xl border border-[#232736] flex justify-between"><span>Memory Allocation:</span><span className="text-purple-400 font-bold">512 MB / 8 GB</span></div>
-            <div className="p-3 bg-[#0d0e14] rounded-xl border border-[#232736] flex justify-between"><span>Active Workers:</span><span className="text-blue-400 font-bold">11 Threads</span></div>
-          </div>
-        </div>
+        <LiveWorkflowMonitor />
       )}
 
       {/* ========================================================================= */}
@@ -883,5 +865,13 @@ export default function WorkflowsPage() {
       )}
 
     </div>
+  )
+}
+
+export default function WorkflowsPage() {
+  return (
+    <React.Suspense fallback={<div className="p-8 text-slate-400 font-mono text-xs">Loading Workflows Studio...</div>}>
+      <WorkflowsPageContent />
+    </React.Suspense>
   )
 }

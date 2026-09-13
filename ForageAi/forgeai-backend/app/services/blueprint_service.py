@@ -25,77 +25,16 @@ class BlueprintService:
         """
         Generate software blueprint artifacts via AI Multi-Agent engine and persist to PostgreSQL.
         """
-        project = ProjectService.get_project_by_id(db, project_id, user)
-
-        # RBAC Check: Viewers cannot generate blueprints
-        membership = (
-            db.query(OrganizationMember)
-            .filter(
-                OrganizationMember.organization_id == project.organization_id,
-                OrganizationMember.user_id == user.id,
-            )
-            .first()
+        # Delegate to WorkflowOrchestratorService with full 14-Agent LangGraph execution and PostgreSQL persistence
+        from app.services.workflow_service import WorkflowOrchestratorService
+        blueprint, _ = WorkflowOrchestratorService.execute_blueprint_workflow(
+            db=db,
+            project_id=project_id,
+            user=user,
+            data=data,
         )
-        caller_role = membership.role if membership else OrgRole.OWNER.value
-        check_permission(
-            role=caller_role,
-            permission=Permission.BLUEPRINT_GENERATE,
-            is_superuser=user.is_superuser,
-            custom_error_message="Permission denied: Viewers cannot generate blueprints",
-        )
-
-        # Determine version
-        existing_blueprint = (
-            db.query(Blueprint)
-            .filter(Blueprint.project_id == project.id)
-            .order_by(Blueprint.current_version.desc())
-            .first()
-        )
-        version = (existing_blueprint.current_version + 1) if existing_blueprint else 1
-
-        # Execute Multi-Agent Generation
-        tech_stack = data.tech_stack or project.tech_stack or {}
-        title, summary, artifact_specs = MultiAgentBlueprintEngine.generate(
-            prompt=data.prompt,
-            tech_stack=tech_stack,
-            title=data.title or f"{project.name} Architecture Blueprint",
-        )
-
-        # Create Blueprint entity
-        blueprint = Blueprint(
-            project_id=project.id,
-            current_version=version,
-            title=title,
-            summary=summary,
-            status="completed",
-            metadata_={
-                "prompt": data.prompt,
-                "engine": "MultiAgentBlueprintEngine v2.0",
-                "agents_count": len(artifact_specs),
-            },
-        )
-        db.add(blueprint)
-        db.flush()
-
-        # Create Blueprint Artifacts
-        artifacts = []
-        for spec in artifact_specs:
-            artifact = BlueprintArtifact(
-                blueprint_id=blueprint.id,
-                version=version,
-                artifact_type=spec["artifact_type"],
-                file_path=spec["file_path"],
-                content=spec["content"],
-                language=spec["language"],
-                file_size_bytes=spec["file_size_bytes"],
-            )
-            db.add(artifact)
-            artifacts.append(artifact)
-
-        db.commit()
-        db.refresh(blueprint)
-        blueprint.artifacts = artifacts
         return blueprint
+
 
     @staticmethod
     def get_blueprint_by_id(db: Session, blueprint_id: UUID, user: User) -> Blueprint:

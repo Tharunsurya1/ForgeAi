@@ -12,7 +12,12 @@ import {
   User,
   UserProfileUpdateRequest,
   UserSession,
+  WorkflowExecution,
+  RAGHealth,
+  RAGIndexResult,
+  RAGQueryResponse,
 } from "@/types";
+
 import { authStorage } from "./auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -311,18 +316,19 @@ export const blueprintsApi = {
   },
 
   async getLatest(projectId: string): Promise<Blueprint> {
-    return fetchClient<Blueprint>(`/blueprints/latest/${projectId}`, {
+    return fetchClient<Blueprint>(`/blueprints/project/${projectId}`, {
       method: "GET",
       requiresAuth: true,
     });
   },
 
   async getLatestForProject(projectId: string): Promise<Blueprint> {
-    return fetchClient<Blueprint>(`/blueprints/latest/${projectId}`, {
+    return fetchClient<Blueprint>(`/blueprints/project/${projectId}`, {
       method: "GET",
       requiresAuth: true,
     });
   },
+
 
   async getById(blueprintId: string): Promise<Blueprint> {
     return fetchClient<Blueprint>(`/blueprints/${blueprintId}`, {
@@ -539,3 +545,84 @@ export const teamsApi = {
     });
   },
 };
+
+export const workflowsApi = {
+  async execute(
+    projectId: string,
+    data: { prompt: string; title?: string; tech_stack?: Record<string, unknown> },
+    background: boolean = false
+  ): Promise<WorkflowExecution> {
+    const query = background ? "?background=true" : "";
+    return fetchClient<WorkflowExecution>(`/workflows/execute/${projectId}${query}`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+
+  async listForProject(projectId: string): Promise<WorkflowExecution[]> {
+    return fetchClient<WorkflowExecution[]>(`/workflows/project/${projectId}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async get(executionId: string): Promise<WorkflowExecution> {
+    return fetchClient<WorkflowExecution>(`/workflows/${executionId}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async getByBlueprint(blueprintId: string): Promise<WorkflowExecution> {
+    return fetchClient<WorkflowExecution>(`/workflows/blueprint/${blueprintId}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  getStreamUrl(executionId: string): string {
+    const token = authStorage.getAccessToken();
+    const wsBase = API_BASE_URL.replace(/^http/, "ws");
+    return `${wsBase}/workflows/${executionId}/stream${token ? `?token=${token}` : ""}`;
+  },
+};
+
+export const ragApi = {
+  async getHealth(): Promise<RAGHealth> {
+    return fetchClient<RAGHealth>("/rag/health", {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async indexBlueprint(blueprintId: string): Promise<RAGIndexResult> {
+    return fetchClient<RAGIndexResult>(`/rag/index/${blueprintId}`, {
+      method: "POST",
+      requiresAuth: true,
+    });
+  },
+
+  async reindexProject(projectId: string): Promise<RAGIndexResult> {
+    return fetchClient<RAGIndexResult>(`/rag/reindex/${projectId}`, {
+      method: "POST",
+      requiresAuth: true,
+    });
+  },
+
+  async queryContext(data: {
+    project_id: string;
+    query: string;
+    artifact_types?: string[];
+    top_k?: number;
+    score_threshold?: number;
+  }): Promise<RAGQueryResponse> {
+    return fetchClient<RAGQueryResponse>("/rag/query", {
+      method: "POST",
+      body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+};
+
+

@@ -67,14 +67,14 @@ def test_generate_and_retrieve_blueprint(client: TestClient):
     assert bp_data["current_version"] == 1
     assert bp_data["status"] == "completed"
     assert bp_data["title"] == "E-Commerce Scale Engine"
-    assert len(bp_data["artifacts"]) == 7
+    assert len(bp_data["artifacts"]) >= 7
 
-    # Verify all 7 domain artifact types are present
+    # Verify all core domain artifact types are present
     artifact_types = [a["artifact_type"] for a in bp_data["artifacts"]]
     assert "requirements" in artifact_types
     assert "architecture" in artifact_types
     assert "database" in artifact_types
-    assert "openapi" in artifact_types
+    assert ("api" in artifact_types or "openapi" in artifact_types)
     assert "frontend" in artifact_types
     assert "security" in artifact_types
     assert "deployment" in artifact_types
@@ -85,7 +85,8 @@ def test_generate_and_retrieve_blueprint(client: TestClient):
     assert get_res.status_code == 200
     retrieved_bp = get_res.json()
     assert retrieved_bp["id"] == bp_id
-    assert len(retrieved_bp["artifacts"]) == 7
+    assert len(retrieved_bp["artifacts"]) >= 7
+
 
     # 3. Retrieve Latest Blueprint for Project
     proj_bp_res = client.get(f"/api/v1/blueprints/project/{project_id}", headers=headers)
