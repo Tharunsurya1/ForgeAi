@@ -57,6 +57,8 @@ class WorkflowState(TypedDict, total=False):
     retry_count: int
     quality_score: Optional[int]
     approval_verdict: Optional[str]
+    correction_intent: Optional[str]
+    review_feedback: Optional[List[str]]
 
 
 def create_initial_workflow_state(
@@ -103,4 +105,6 @@ def create_initial_workflow_state(
         "retry_count": 0,
         "quality_score": None,
         "approval_verdict": None,
+        "correction_intent": None,
+        "review_feedback": None,
     }

@@ -431,3 +431,94 @@ def test_observable_agent_and_workflow_failure(db: Session):
     )
     assert wf_fail_event is not None
 
+
+def test_workflow_event_broadcaster_cross_thread_dispatch():
+    """
+    Phase 1 Fix 2: Ensure WorkflowEventBroadcaster safely dispatches events from a
+    worker thread to an asyncio event loop running on another thread.
+    """
+    import asyncio
+    import threading
+    from app.services.workflow_service import WorkflowEventBroadcaster
+
+    broadcaster = WorkflowEventBroadcaster()
+    test_key = "test-cross-thread-exec"
+
+    # Start a dedicated asyncio event loop on a separate thread
+    loop = asyncio.new_event_loop()
+    loop_ready = threading.Event()
+    loop_stop = threading.Event()
+
+    def run_loop():
+        asyncio.set_event_loop(loop)
+        loop_ready.set()
+        loop.run_forever()
+
+    loop_thread = threading.Thread(target=run_loop, daemon=True)
+    loop_thread.start()
+    loop_ready.wait(timeout=5)
+
+    try:
+        # Subscribe from inside the target event loop
+        async def do_subscribe():
+            return await broadcaster.subscribe(test_key)
+
+        future = asyncio.run_coroutine_threadsafe(do_subscribe(), loop)
+        q = future.result(timeout=5)
+
+        # Broadcast from a completely different worker thread
+        broadcast_worker_done = threading.Event()
+
+        def worker_broadcast():
+            broadcaster.broadcast(test_key, {"event_type": "cross_thread_test", "seq": 42})
+            broadcast_worker_done.set()
+
+        worker_thread = threading.Thread(target=worker_broadcast)
+        worker_thread.start()
+        worker_thread.join(timeout=5)
+        assert broadcast_worker_done.is_set()
+
+        # Retrieve the item from the subscriber queue in the target event loop
+        async def get_item():
+            return await asyncio.wait_for(q.get(), timeout=5.0)
+
+        get_future = asyncio.run_coroutine_threadsafe(get_item(), loop)
+        received = get_future.result(timeout=5)
+        assert received.get("event_type") == "cross_thread_test"
+        assert received.get("seq") == 42
+
+        # Unsubscribe
+        async def do_unsubscribe():
+            await broadcaster.unsubscribe(test_key, q)
+
+        asyncio.run_coroutine_threadsafe(do_unsubscribe(), loop).result(timeout=5)
+
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join(timeout=5)
+
+
+def test_workflow_event_broadcaster_handles_dead_subscribers():
+    """
+    Phase 1 Fix 2: Verify WorkflowEventBroadcaster safely cleans up closed/dead subscriber loops
+    without throwing exceptions or leaking memory.
+    """
+    import asyncio
+    from app.services.workflow_service import WorkflowEventBroadcaster
+
+    broadcaster = WorkflowEventBroadcaster()
+    test_key = "test-dead-sub-exec"
+
+    # Create a loop, subscribe, then close the loop abruptly
+    dead_loop = asyncio.new_event_loop()
+    dead_q = dead_loop.run_until_complete(broadcaster.subscribe(test_key))
+    dead_loop.close()
+
+    # Broadcasting to a closed loop must not raise an unhandled exception
+    broadcaster.broadcast(test_key, {"event": "test"})
+
+    # The dead subscriber should be pruned from the broadcaster
+    with broadcaster._lock:
+        assert test_key not in broadcaster._subscribers
+
+

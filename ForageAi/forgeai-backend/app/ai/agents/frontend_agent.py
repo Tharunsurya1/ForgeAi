@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.types import AgentContext, AgentExecutionError, ArtifactDraft
-from app.ai.agents.utils import extract_json_payload
+from app.ai.agents.utils import extract_json_payload, format_upstream_context_section
 
 
 class FrontendCodeFile(BaseModel):
@@ -47,15 +47,20 @@ class FrontendAgent(BaseAgent):
         prompt = validated_input["prompt"]
 
         # Inspect if UI/UX design tokens or API specs were passed in shared_state
-        shared_state = validated_input.get("shared_state", {})
+        shared_state = context.shared_state or validated_input.get("shared_state") or {}
         ui_specs = shared_state.get("ui_specs") or {}
-        theme_name = ui_specs.get("design_system_name", "ForgeAI Dark Modern")
+        api_spec = shared_state.get("api_spec")
+        theme_name = ui_specs.get("design_system_name", "ForgeAI Dark Modern") if isinstance(ui_specs, dict) else "ForgeAI Dark Modern"
 
         system_prompt = (
             "You are the Principal Frontend Architect for Next.js 15 and React 19. "
             "Generate production-ready TypeScript pages and component trees matching the design system."
         )
         task_prompt = f"Design frontend architecture and components for: '{prompt}' using design system '{theme_name}'."
+        if ui_specs:
+            task_prompt += format_upstream_context_section("UPSTREAM UI/UX SPECIFICATIONS", ui_specs)
+        if api_spec:
+            task_prompt += format_upstream_context_section("UPSTREAM API CONTRACT", api_spec)
 
         parsed = self.generate_structured_output(prompt=task_prompt, system_prompt=system_prompt)
 

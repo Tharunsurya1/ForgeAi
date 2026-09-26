@@ -143,6 +143,7 @@ def test_execute_blueprint_workflow_e2e_persistence(db: Session):
     assert len(events) >= 16
     event_types = [e.event_type for e in events]
     assert event_types[0] == "workflow_started"
+    assert "agent_started" in event_types
     assert "agent_completed" in event_types
     assert "code_review_verdict" in event_types
     assert event_types[-1] == "workflow_completed"
@@ -150,6 +151,16 @@ def test_execute_blueprint_workflow_e2e_persistence(db: Session):
     # Verify sequence numbers are strictly ordered
     seqs = [e.sequence_number for e in events]
     assert seqs == list(range(1, len(events) + 1))
+
+    # Verify each agent has agent_started strictly before agent_completed
+    agent_starts = {e.agent_name: e.sequence_number for e in events if e.event_type == "agent_started"}
+    agent_comps = {e.agent_name: e.sequence_number for e in events if e.event_type == "agent_completed"}
+    for agent_name in expected_agents:
+        assert agent_name in agent_starts, f"Missing agent_started event for {agent_name}"
+        assert agent_name in agent_comps, f"Missing agent_completed event for {agent_name}"
+        assert agent_starts[agent_name] < agent_comps[agent_name], (
+            f"agent_started ({agent_starts[agent_name]}) must precede agent_completed ({agent_comps[agent_name]}) for {agent_name}"
+        )
 
     # 5. Verify Artifact Types
     artifact_types = {a.artifact_type for a in blueprint.artifacts}

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
@@ -10,8 +11,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
 from app.ai.agents import LLMProvider, get_default_provider
-from app.ai.workflow import build_workflow_graph, create_initial_workflow_state
+from app.ai.workflow import WorkflowState, build_workflow_graph, create_initial_workflow_state
 from app.core.rbac import OrgRole, Permission, check_permission
+from app.database.database import SessionLocal
 from app.models.agent_run import AgentRun
 from app.models.blueprint import Blueprint
 from app.models.blueprint_artifact import BlueprintArtifact
@@ -40,6 +42,7 @@ NODE_TO_AGENT = {
     "testing": "TestingAgent",
     "documentation": "DocumentationAgent",
     "code_review": "CodeReviewAgent",
+    "correction": "ReviewCorrectionGate",
     "optimization": "OptimizationAgent",
 }
 
@@ -58,6 +61,7 @@ AGENT_OUTPUT_FIELD = {
     "TestingAgent": "test_suites",
     "DocumentationAgent": "documentation",
     "CodeReviewAgent": "code_review",
+    "ReviewCorrectionGate": "correction_intent",
     "OptimizationAgent": "optimizations",
 }
 
@@ -104,45 +108,94 @@ def format_event_for_stream(
 
 class WorkflowEventBroadcaster:
     """
-    In-process async pub/sub broadcaster for delivering live WorkflowEvents
-    to active WebSocket subscribers.
-    Thread-safe and async-safe.
+    In-process thread-safe pub/sub broadcaster for delivering live WorkflowEvents
+    to active WebSocket subscribers living on asyncio event loops.
     """
 
     def __init__(self):
-        self._subscribers: Dict[str, Set[asyncio.Queue]] = {}
-        self._lock: Optional[asyncio.Lock] = None
-
-    def _get_lock(self) -> asyncio.Lock:
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        return self._lock
+        self._subscribers: Dict[str, Set[Tuple[asyncio.Queue, asyncio.AbstractEventLoop]]] = {}
+        self._lock = threading.Lock()
 
     async def subscribe(self, execution_id: str) -> asyncio.Queue:
-        lock = self._get_lock()
-        async with lock:
-            if execution_id not in self._subscribers:
-                self._subscribers[execution_id] = set()
-            q: asyncio.Queue = asyncio.Queue(maxsize=100)
-            self._subscribers[execution_id].add(q)
-            return q
+        """
+        Subscribes to live events for a given execution ID.
+        Must be called from the asyncio event loop handling the WebSocket connection.
+        Captures the running event loop for thread-safe cross-thread dispatch.
+        """
+        loop = asyncio.get_running_loop()
+        q: asyncio.Queue = asyncio.Queue(maxsize=200)
+        with self._lock:
+            key = str(execution_id)
+            if key not in self._subscribers:
+                self._subscribers[key] = set()
+            self._subscribers[key].add((q, loop))
+        return q
 
     async def unsubscribe(self, execution_id: str, queue: asyncio.Queue) -> None:
-        lock = self._get_lock()
-        async with lock:
-            if execution_id in self._subscribers:
-                self._subscribers[execution_id].discard(queue)
-                if not self._subscribers[execution_id]:
-                    del self._subscribers[execution_id]
+        """
+        Removes subscriber queue for a given execution ID cleanly.
+        """
+        with self._lock:
+            key = str(execution_id)
+            if key in self._subscribers:
+                self._subscribers[key] = {
+                    (q, loop) for (q, loop) in self._subscribers[key] if q is not queue
+                }
+                if not self._subscribers[key]:
+                    del self._subscribers[key]
 
-    def broadcast(self, execution_id: str, event_data: Dict[str, Any]) -> None:
-        """Broadcast event to all active subscribers for an execution."""
-        queues = self._subscribers.get(str(execution_id), set()).copy()
-        for q in queues:
+    @staticmethod
+    def _safe_put(q: asyncio.Queue, event_data: Dict[str, Any]) -> None:
+        try:
+            q.put_nowait(event_data)
+        except asyncio.QueueFull:
             try:
+                q.get_nowait()
                 q.put_nowait(event_data)
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def broadcast(self, execution_id: str, event_data: Dict[str, Any]) -> None:
+        """
+        Broadcast event to all active subscribers for an execution.
+        Safe to call from any worker thread or asyncio event loop context.
+        """
+        key = str(execution_id)
+        with self._lock:
+            subs = list(self._subscribers.get(key, set()))
+
+        if not subs:
+            return
+
+        dead_subs = []
+        for q, loop in subs:
+            try:
+                if loop.is_closed():
+                    dead_subs.append((q, loop))
+                    continue
+
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+
+                if running_loop is loop:
+                    self._safe_put(q, event_data)
+                else:
+                    loop.call_soon_threadsafe(self._safe_put, q, event_data)
+            except Exception as e:
+                logger.debug(f"Error broadcasting event to subscriber: {e}")
+                dead_subs.append((q, loop))
+
+        if dead_subs:
+            with self._lock:
+                if key in self._subscribers:
+                    for item in dead_subs:
+                        self._subscribers[key].discard(item)
+                    if not self._subscribers[key]:
+                        del self._subscribers[key]
 
 
 workflow_event_broadcaster = WorkflowEventBroadcaster()
@@ -284,7 +337,15 @@ class WorkflowOrchestratorService:
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
+        seq_lock = threading.Lock()
         seq_num = 1
+
+        def next_seq() -> int:
+            nonlocal seq_num
+            with seq_lock:
+                seq_num += 1
+                return seq_num
+
         accumulated: Dict[str, Any] = {
             "artifacts": [],
             "completed_agents": [],
@@ -292,8 +353,48 @@ class WorkflowOrchestratorService:
         }
 
         try:
+            def on_agent_start(started_agent_name: str, current_state: WorkflowState) -> None:
+                current_seq = next_seq()
+                start_db = SessionLocal()
+                try:
+                    start_event = WorkflowEvent(
+                        workflow_execution_id=workflow_execution.id,
+                        event_type="agent_started",
+                        agent_name=started_agent_name,
+                        sequence_number=current_seq,
+                        payload={
+                            "status": "running",
+                            "workflow_id": str(workflow_execution.id),
+                            "agent_name": started_agent_name,
+                        },
+                    )
+                    start_db.add(start_event)
+                    start_db.query(WorkflowExecution).filter(
+                        WorkflowExecution.id == workflow_execution.id
+                    ).update({"current_agent": started_agent_name})
+                    start_db.commit()
+                except Exception as start_err:
+                    start_db.rollback()
+                    logger.warning(f"Failed to persist agent_started event: {start_err}")
+                finally:
+                    start_db.close()
+
+                workflow_event_broadcaster.broadcast(
+                    str(workflow_execution.id),
+                    format_event_for_stream(
+                        workflow_execution.id,
+                        seq_num=current_seq,
+                        event_type="agent_started",
+                        agent_name=started_agent_name,
+                        status="running",
+                        progress=workflow_execution.progress_percentage,
+                        message=f"{started_agent_name} started execution.",
+                        payload={"status": "running", "workflow_id": str(workflow_execution.id)},
+                    ),
+                )
+
             p = provider or get_default_provider()
-            graph = build_workflow_graph(provider=p)
+            graph = build_workflow_graph(provider=p, on_agent_start=on_agent_start)
 
             initial_state = create_initial_workflow_state(
                 prompt=prompt,
@@ -326,7 +427,7 @@ class WorkflowOrchestratorService:
 
                     # Check for errors in agent execution
                     if delta.get("errors"):
-                        seq_num += 1
+                        err_seq = next_seq()
                         err_msg = "; ".join(delta["errors"])
                         agent_run = AgentRun(
                             workflow_execution_id=workflow_execution.id,
@@ -343,7 +444,7 @@ class WorkflowOrchestratorService:
                             workflow_execution_id=workflow_execution.id,
                             event_type="agent_failed",
                             agent_name=agent_name,
-                            sequence_number=seq_num,
+                            sequence_number=err_seq,
                             payload={"error": err_msg, "status": "failed"},
                         )
                         db.add(fail_event)
@@ -353,7 +454,7 @@ class WorkflowOrchestratorService:
                             str(workflow_execution.id),
                             format_event_for_stream(
                                 workflow_execution.id,
-                                seq_num=seq_num,
+                                seq_num=err_seq,
                                 event_type="agent_failed",
                                 agent_name=agent_name,
                                 status="failed",
@@ -365,7 +466,7 @@ class WorkflowOrchestratorService:
                         raise RuntimeError(f"Agent {agent_name} failed: {err_msg}")
 
                     # Record successful AgentRun & WorkflowEvent
-                    seq_num += 1
+                    comp_seq = next_seq()
                     field_name = AGENT_OUTPUT_FIELD.get(agent_name, "")
                     out_payload = accumulated.get(field_name) or delta.get(field_name) or {}
 
@@ -384,7 +485,7 @@ class WorkflowOrchestratorService:
                         workflow_execution_id=workflow_execution.id,
                         event_type="agent_completed",
                         agent_name=agent_name,
-                        sequence_number=seq_num,
+                        sequence_number=comp_seq,
                         payload={
                             "status": "completed",
                             "artifacts_produced": len(accumulated.get("artifacts", [])),
@@ -397,7 +498,7 @@ class WorkflowOrchestratorService:
                         str(workflow_execution.id),
                         format_event_for_stream(
                             workflow_execution.id,
-                            seq_num=seq_num,
+                            seq_num=comp_seq,
                             event_type="agent_completed",
                             agent_name=agent_name,
                             status="completed",
@@ -409,14 +510,14 @@ class WorkflowOrchestratorService:
 
                     # If CodeReviewAgent finished, emit code_review_verdict event
                     if agent_name == "CodeReviewAgent":
-                        seq_num += 1
+                        rev_seq = next_seq()
                         quality_score = accumulated.get("quality_score", 95)
                         approval_verdict = accumulated.get("approval_verdict", "APPROVED")
                         review_event = WorkflowEvent(
                             workflow_execution_id=workflow_execution.id,
                             event_type="code_review_verdict",
                             agent_name="CodeReviewAgent",
-                            sequence_number=seq_num,
+                            sequence_number=rev_seq,
                             payload={
                                 "quality_score": quality_score,
                                 "approval_verdict": approval_verdict,
@@ -430,13 +531,50 @@ class WorkflowOrchestratorService:
                             str(workflow_execution.id),
                             format_event_for_stream(
                                 workflow_execution.id,
-                                seq_num=seq_num,
+                                seq_num=rev_seq,
                                 event_type="code_review_verdict",
                                 agent_name="CodeReviewAgent",
                                 status="completed",
                                 progress=progress,
                                 message=f"Code Review: {approval_verdict} (Score: {quality_score}/100)",
                                 payload={"quality_score": quality_score, "approval_verdict": approval_verdict},
+                            ),
+                        )
+
+                    # If ReviewCorrectionGate finished, emit correction_triggered event
+                    if agent_name == "ReviewCorrectionGate":
+                        corr_seq = next_seq()
+                        corr_retries = accumulated.get("retry_count", 1)
+                        corr_intent = accumulated.get("correction_intent", "")
+                        corr_feedback = accumulated.get("review_feedback", [])
+                        corr_event = WorkflowEvent(
+                            workflow_execution_id=workflow_execution.id,
+                            event_type="correction_triggered",
+                            agent_name="ReviewCorrectionGate",
+                            sequence_number=corr_seq,
+                            payload={
+                                "retry_count": corr_retries,
+                                "correction_intent": corr_intent,
+                                "review_feedback": corr_feedback,
+                            },
+                        )
+                        db.add(corr_event)
+                        db.commit()
+
+                        workflow_event_broadcaster.broadcast(
+                            str(workflow_execution.id),
+                            format_event_for_stream(
+                                workflow_execution.id,
+                                seq_num=corr_seq,
+                                event_type="correction_triggered",
+                                agent_name="ReviewCorrectionGate",
+                                status="running",
+                                progress=progress,
+                                message=f"Review Correction Gate: Retrying implementation (attempt {corr_retries}/2)",
+                                payload={
+                                    "retry_count": corr_retries,
+                                    "correction_intent": corr_intent,
+                                },
                             ),
                         )
 
@@ -502,7 +640,7 @@ class WorkflowOrchestratorService:
                 artifacts_list.append(artifact)
 
             # 7. Complete Workflow Execution
-            seq_num += 1
+            fin_seq = next_seq()
             workflow_execution.status = "completed"
             workflow_execution.blueprint_id = blueprint.id
             workflow_execution.progress_percentage = 100
@@ -520,7 +658,7 @@ class WorkflowOrchestratorService:
                 workflow_execution_id=workflow_execution.id,
                 event_type="workflow_completed",
                 agent_name="OptimizationAgent",
-                sequence_number=seq_num,
+                sequence_number=fin_seq,
                 payload={"blueprint_id": str(blueprint.id), "version": version, "quality_score": quality_score},
             )
             db.add(complete_event)
@@ -541,7 +679,7 @@ class WorkflowOrchestratorService:
                 str(workflow_execution.id),
                 format_event_for_stream(
                     workflow_execution.id,
-                    seq_num=seq_num,
+                    seq_num=fin_seq,
                     event_type="workflow_completed",
                     agent_name="OptimizationAgent",
                     status="completed",
@@ -557,6 +695,7 @@ class WorkflowOrchestratorService:
             logger.error(f"Workflow execution {workflow_execution.id} failed: {e}", exc_info=True)
             db.rollback()
             try:
+                fail_seq = next_seq()
                 with db.begin_nested():
                     workflow_execution.status = "failed"
                     workflow_execution.error_message = str(e)
@@ -566,7 +705,7 @@ class WorkflowOrchestratorService:
                     fail_event = WorkflowEvent(
                         workflow_execution_id=workflow_execution.id,
                         event_type="workflow_failed",
-                        sequence_number=seq_num + 1,
+                        sequence_number=fail_seq,
                         payload={"error": str(e)},
                     )
                     db.add(fail_event)
@@ -576,7 +715,7 @@ class WorkflowOrchestratorService:
                     str(workflow_execution.id),
                     format_event_for_stream(
                         workflow_execution.id,
-                        seq_num=seq_num + 1,
+                        seq_num=fail_seq,
                         event_type="workflow_failed",
                         status="failed",
                         progress=workflow_execution.progress_percentage,

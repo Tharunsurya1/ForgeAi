@@ -490,3 +490,152 @@ def test_custom_canned_json_provider_integration():
     assert result.success is True
     assert result.data["functional_requirements"][0]["id"] == "FR-999"
     assert result.data["personas"][0]["role"] == "Dispatcher"
+
+
+def test_specialist_agents_upstream_context_propagation():
+    """
+    Phase 1 Fix 5: Verify specialist agents inject concise UPSTREAM context sections
+    into their LLM prompts when context.shared_state is provided.
+    """
+    # 1. APIAgent
+    api_agent = APIAgent()
+    api_captured = {}
+
+    def mock_api_gen(*args, **kwargs):
+        api_captured.update(kwargs)
+        return None
+
+    api_agent.generate_structured_output = mock_api_gen
+
+    ctx_api = AgentContext(
+        workflow_id="wf-test-api",
+        project_id="proj-1",
+        prompt="Build payment API",
+        shared_state={
+            "database_ddl": "CREATE TABLE payments (id UUID PRIMARY KEY, amount NUMERIC);",
+            "requirements": "The system must process payments within 200ms.",
+        },
+    )
+    api_agent.run(ctx_api)
+    api_prompt = api_captured.get("prompt", "")
+    assert "UPSTREAM DATABASE SCHEMA & DDL" in api_prompt
+    assert "CREATE TABLE payments" in api_prompt
+    assert "UPSTREAM REQUIREMENTS SPECIFICATION" in api_prompt
+    assert "process payments within 200ms" in api_prompt
+
+    # 2. BackendAgent (including correction feedback)
+    backend_agent = BackendAgent()
+    backend_captured = {}
+
+    def mock_be_gen(*args, **kwargs):
+        backend_captured.update(kwargs)
+        return None
+
+    backend_agent.generate_structured_output = mock_be_gen
+
+    ctx_be = AgentContext(
+        workflow_id="wf-test-be",
+        project_id="proj-1",
+        prompt="Implement payment backend",
+        shared_state={
+            "requirements": "FR-1: Payment Gateway",
+            "business_analysis": "As a user I want to pay securely",
+            "database_ddl": "CREATE TABLE payments (id UUID PRIMARY KEY);",
+            "api_spec": "/api/v1/payments POST",
+            "review_feedback": ["Fix missing input validation for negative amounts"],
+        },
+    )
+    backend_agent.run(ctx_be)
+    be_prompt = backend_captured.get("prompt", "")
+    assert "UPSTREAM FUNCTIONAL REQUIREMENTS" in be_prompt
+    assert "FR-1: Payment Gateway" in be_prompt
+    assert "UPSTREAM BUSINESS RULES & STORIES" in be_prompt
+    assert "As a user I want to pay securely" in be_prompt
+    assert "UPSTREAM DATABASE DDL & MODELS" in be_prompt
+    assert "CREATE TABLE payments" in be_prompt
+    assert "UPSTREAM API CONTRACT" in be_prompt
+    assert "/api/v1/payments POST" in be_prompt
+    assert "UPSTREAM CODE REVIEW CORRECTION FEEDBACK" in be_prompt
+    assert "Fix missing input validation" in be_prompt
+
+    # 3. FrontendAgent
+    frontend_agent = FrontendAgent()
+    fe_captured = {}
+
+    def mock_fe_gen(*args, **kwargs):
+        fe_captured.update(kwargs)
+        return None
+
+    frontend_agent.generate_structured_output = mock_fe_gen
+
+    ctx_fe = AgentContext(
+        workflow_id="wf-test-fe",
+        project_id="proj-1",
+        prompt="Implement payment checkout UI",
+        shared_state={
+            "ui_specs": {"design_system_name": "ForgeAI Obsidian Glow", "palette": "Dark"},
+            "api_spec": "POST /api/v1/checkout",
+        },
+    )
+    frontend_agent.run(ctx_fe)
+    fe_prompt = fe_captured.get("prompt", "")
+    assert "UPSTREAM UI/UX SPECIFICATIONS" in fe_prompt
+    assert "ForgeAI Obsidian Glow" in fe_prompt
+    assert "UPSTREAM API CONTRACT" in fe_prompt
+    assert "POST /api/v1/checkout" in fe_prompt
+
+    # 4. TestingAgent
+    testing_agent = TestingAgent()
+    test_captured = {}
+
+    def mock_test_gen(*args, **kwargs):
+        test_captured.update(kwargs)
+        return None
+
+    testing_agent.generate_structured_output = mock_test_gen
+
+    ctx_test = AgentContext(
+        workflow_id="wf-test-testing",
+        project_id="proj-1",
+        prompt="Generate payment test suite",
+        shared_state={
+            "api_spec": "GET /api/v1/payments/{id}",
+            "requirements": "FR-2: Reconcile payments on settlement",
+        },
+    )
+    testing_agent.run(ctx_test)
+    test_prompt = test_captured.get("prompt", "")
+    assert "UPSTREAM API SPECIFICATION" in test_prompt
+    assert "GET /api/v1/payments/{id}" in test_prompt
+    assert "UPSTREAM FUNCTIONAL REQUIREMENTS" in test_prompt
+    assert "FR-2: Reconcile payments" in test_prompt
+
+    # 5. CodeReviewAgent
+    review_agent = CodeReviewAgent()
+    rev_captured = {}
+
+    def mock_rev_gen(*args, **kwargs):
+        rev_captured.update(kwargs)
+        return None
+
+    review_agent.generate_structured_output = mock_rev_gen
+
+    ctx_rev = AgentContext(
+        workflow_id="wf-test-rev",
+        project_id="proj-1",
+        prompt="Review payment artifacts",
+        shared_state={
+            "backend_code": "def process_payment(): pass",
+            "frontend_code": "export default function Checkout() {}",
+            "security_audit": "Vulnerability: Hardcoded API secret in header",
+        },
+    )
+    review_agent.run(ctx_rev)
+    rev_prompt = rev_captured.get("prompt", "")
+    assert "UPSTREAM BACKEND CODE & ARTIFACTS" in rev_prompt
+    assert "def process_payment" in rev_prompt
+    assert "UPSTREAM FRONTEND CODE & ROUTES" in rev_prompt
+    assert "Checkout()" in rev_prompt
+    assert "UPSTREAM SECURITY AUDIT FINDINGS" in rev_prompt
+    assert "Hardcoded API secret" in rev_prompt
+

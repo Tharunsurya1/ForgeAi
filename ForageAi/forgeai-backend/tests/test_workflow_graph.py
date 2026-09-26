@@ -213,10 +213,10 @@ def test_code_review_changes_requested_triggers_bounded_correction():
     assert "OptimizationAgent" in final_state["completed_agents"]
     assert final_state["optimizations"] is not None
 
-    # Verify correction gate logged both retry iterations
-    errors = final_state["errors"]
-    assert any("Triggering correction loop 1/2" in e for e in errors)
-    assert any("Triggering correction loop 2/2" in e for e in errors)
+    # Verify correction gate did not log fatal errors and recorded correction state
+    assert len(final_state["errors"]) == 0
+    assert "refining implementation based on code review feedback" in final_state.get("correction_intent", "")
+    assert len(final_state.get("review_feedback", [])) > 0
 
 
 def test_routing_exhausted_retries_forces_optimization():

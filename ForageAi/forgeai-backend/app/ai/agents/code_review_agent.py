@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.types import AgentContext, ArtifactDraft
-from app.ai.agents.utils import extract_json_payload
+from app.ai.agents.utils import extract_json_payload, format_upstream_context_section
 
 
 class ReviewIssue(BaseModel):
@@ -55,6 +55,16 @@ class CodeReviewAgent(BaseAgent):
             "Evaluate code files and schemas for PEP 8/TypeScript standards, error handling, and clean architecture."
         )
         task_prompt = f"Perform code review on artifacts for: '{prompt}'."
+        shared = context.shared_state or validated_input.get("shared_state") or {}
+        backend_code = shared.get("backend_code")
+        frontend_code = shared.get("frontend_code")
+        security_audit = shared.get("security_audit")
+        if backend_code:
+            task_prompt += format_upstream_context_section("UPSTREAM BACKEND CODE & ARTIFACTS", backend_code)
+        if frontend_code:
+            task_prompt += format_upstream_context_section("UPSTREAM FRONTEND CODE & ROUTES", frontend_code)
+        if security_audit:
+            task_prompt += format_upstream_context_section("UPSTREAM SECURITY AUDIT FINDINGS", security_audit)
 
         parsed = self.generate_structured_output(prompt=task_prompt, system_prompt=system_prompt)
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.types import AgentContext, AgentExecutionError, ArtifactDraft
-from app.ai.agents.utils import extract_json_payload, safe_validate_python_ast
+from app.ai.agents.utils import extract_json_payload, format_upstream_context_section, safe_validate_python_ast
 
 
 class TestCaseSpec(BaseModel):
@@ -60,6 +60,13 @@ class TestingAgent(BaseAgent):
             "Generate executable Pytest test suites with fixtures, assertions, and mock boundaries."
         )
         task_prompt = f"Design automated test strategy and test files for: '{prompt}'."
+        shared = context.shared_state or validated_input.get("shared_state") or {}
+        api_spec = shared.get("api_spec")
+        requirements = shared.get("requirements")
+        if api_spec:
+            task_prompt += format_upstream_context_section("UPSTREAM API SPECIFICATION", api_spec)
+        if requirements:
+            task_prompt += format_upstream_context_section("UPSTREAM FUNCTIONAL REQUIREMENTS", requirements)
 
         parsed = self.generate_structured_output(prompt=task_prompt, system_prompt=system_prompt)
 

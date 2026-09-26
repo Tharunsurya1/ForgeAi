@@ -426,6 +426,58 @@ def test_database_agent_rag_context_injection():
         assert "CREATE TABLE" in output["ddl_sql"]
 
 
+def test_database_agent_real_rag_artifact_type_database_retrieval(db: Session):
+    """
+    Phase 1 Fix 3: Ensure DatabaseAgent retrieves artifacts indexed with artifact_type="database"
+    using real Qdrant vector index and real retrieve_context (no mocking of retrieve_context).
+    """
+    ctx = create_test_context(db, "db_rag_real")
+    project = ctx["project"]
+    org_id = str(ctx["org"].id)
+
+    bp = Blueprint(project_id=project.id, title="Banking System Blueprint")
+    db.add(bp)
+    db.commit()
+
+    sql_content = "CREATE TABLE ledger_accounts (id UUID PRIMARY KEY, account_num VARCHAR(32) UNIQUE, balance NUMERIC);"
+    # The workflow service saves SQL/DDL artifacts with artifact_type="database"
+    db_artifact = BlueprintArtifact(
+        blueprint_id=bp.id,
+        artifact_type="database",
+        file_path="db/schema.sql",
+        content=sql_content,
+    )
+    db.add(db_artifact)
+    db.commit()
+
+    # Create real in-memory Qdrant & deterministic embeddings
+    qdrant = QdrantService(url=":memory:", default_collection="test_db_rag_collection")
+    embeddings = DeterministicMockEmbeddingProvider(dimension=64)
+    real_rag = RAGService(qdrant=qdrant, embeddings=embeddings)
+
+    # Index the real database artifact
+    indexed_count = real_rag.index_blueprint_artifact(db, db_artifact, project)
+    assert indexed_count > 0
+
+    agent = DatabaseAgent()
+    context = AgentContext(
+        workflow_id="wf-test-real-rag-db",
+        project_id=str(project.id),
+        organization_id=org_id,
+        prompt=sql_content,
+        deterministic=True,
+    )
+
+    # Patch singleton rag_service with our real indexed RAGService instance (DO NOT mock retrieve_context)
+    with patch("app.services.rag_service.rag_service", real_rag):
+        output, artifacts = agent.execute(context, {"prompt": sql_content})
+
+        assert "rag_metadata" in output
+        assert output["rag_metadata"]["rag_performed"] is True
+        assert output["rag_metadata"]["results_count"] >= 1
+        assert str(db_artifact.id) in output["rag_metadata"]["source_artifact_ids"]
+
+
 # ===========================================================================
 # 7. RAG REST API Tests
 # ===========================================================================

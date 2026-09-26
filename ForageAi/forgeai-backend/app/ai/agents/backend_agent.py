@@ -9,7 +9,11 @@ from pydantic import BaseModel, Field
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.types import AgentContext, AgentExecutionError, ArtifactDraft
-from app.ai.agents.utils import extract_json_payload, safe_validate_python_ast
+from app.ai.agents.utils import (
+    extract_json_payload,
+    format_upstream_context_section,
+    safe_validate_python_ast,
+)
 
 
 class CodeFile(BaseModel):
@@ -50,6 +54,26 @@ class BackendAgent(BaseAgent):
             "Generate production-grade FastAPI Python files including app/main.py, schemas, and routers."
         )
         task_prompt = f"Scaffold backend architecture and Python files for: '{prompt}'."
+        shared = context.shared_state or {}
+        req_ctx = shared.get("requirements")
+        ba_ctx = shared.get("business_analysis") or shared.get("user_stories")
+        db_ctx = shared.get("database_ddl")
+        api_ctx = shared.get("api_spec")
+        corr_intent = shared.get("correction_intent")
+        corr_feedback = shared.get("review_feedback")
+
+        if req_ctx:
+            task_prompt += format_upstream_context_section("UPSTREAM FUNCTIONAL REQUIREMENTS", req_ctx)
+        if ba_ctx:
+            task_prompt += format_upstream_context_section("UPSTREAM BUSINESS RULES & STORIES", ba_ctx)
+        if db_ctx:
+            task_prompt += format_upstream_context_section("UPSTREAM DATABASE DDL & MODELS", db_ctx)
+        if api_ctx:
+            task_prompt += format_upstream_context_section("UPSTREAM API CONTRACT", api_ctx)
+        if corr_feedback:
+            task_prompt += format_upstream_context_section("UPSTREAM CODE REVIEW CORRECTION FEEDBACK", corr_feedback)
+        elif corr_intent:
+            task_prompt += format_upstream_context_section("UPSTREAM CORRECTION INTENT", corr_intent)
 
         parsed = self.generate_structured_output(prompt=task_prompt, system_prompt=system_prompt)
 

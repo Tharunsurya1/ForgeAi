@@ -10,7 +10,7 @@ import yaml
 
 from app.ai.agents.base import BaseAgent
 from app.ai.agents.types import AgentContext, AgentExecutionError, ArtifactDraft
-from app.ai.agents.utils import extract_json_payload, safe_validate_yaml
+from app.ai.agents.utils import extract_json_payload, format_upstream_context_section, safe_validate_yaml
 
 
 class EndpointSpec(BaseModel):
@@ -59,6 +59,12 @@ class APIAgent(BaseAgent):
             "status codes, and error models."
         )
         task_prompt = f"Design OpenAPI 3.1 contract for: '{prompt}'."
+        db_context = (context.shared_state or {}).get("database_ddl")
+        req_context = (context.shared_state or {}).get("requirements")
+        if db_context:
+            task_prompt += format_upstream_context_section("UPSTREAM DATABASE SCHEMA & DDL", db_context)
+        if req_context:
+            task_prompt += format_upstream_context_section("UPSTREAM REQUIREMENTS SPECIFICATION", req_context)
 
         parsed = self.generate_structured_output(prompt=task_prompt, system_prompt=system_prompt)
 

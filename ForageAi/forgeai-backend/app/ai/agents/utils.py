@@ -107,3 +107,28 @@ def safe_validate_yaml(yaml_text: str) -> Tuple[bool, Optional[str]]:
         return True, None
     except Exception as e:
         return False, str(e)
+
+
+def format_upstream_context_section(header: str, content: Any, max_chars: int = 1200) -> str:
+    """
+    Sanitize, summarize, and format an upstream artifact or state piece for injection into agent prompts.
+    Guarantees secret redaction, prevents massive token expansion, and provides clear demarcation.
+    """
+    if not content:
+        return ""
+
+    sanitized = sanitize_payload(content)
+    if isinstance(sanitized, str):
+        body = sanitized.strip()
+    elif isinstance(sanitized, (dict, list)):
+        body = json.dumps(sanitized, indent=2)
+    else:
+        body = str(sanitized).strip()
+
+    if not body:
+        return ""
+
+    if len(body) > max_chars:
+        body = body[:max_chars] + "\n... [upstream context truncated for brevity]"
+
+    return f"\n\n--- {header} ---\n{body}\n--- END {header} ---"

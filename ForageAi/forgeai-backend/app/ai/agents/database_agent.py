@@ -85,7 +85,7 @@ class DatabaseAgent(BaseAgent):
                     query=prompt,
                     organization_id=org_id,
                     project_id=context.project_id if context.project_id and context.project_id != "default-project" else None,
-                    artifact_types=["database_schema", "erd", "ddl", "models"],
+                    artifact_types=["database", "database_schema", "erd", "ddl", "models"],
                 )
                 rag_latency = int((time.time() - t0) * 1000)
                 rag_meta.update({
