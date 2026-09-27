@@ -58,6 +58,14 @@ app.add_middleware(
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+# Direct alias for /api/projects, /api/blueprints, and /api/code-generator endpoints
+from app.api.v1.projects import router as projects_router
+from app.api.v1.blueprints import router as blueprints_router
+from app.api.v1.code_generator import router as code_generator_router
+app.include_router(projects_router, prefix="/api/projects", include_in_schema=False)
+app.include_router(blueprints_router, prefix="/api/blueprints", include_in_schema=False)
+app.include_router(code_generator_router, prefix="/api/code-generator", include_in_schema=False)
+
 @app.get("/health", tags=["health"])
 async def health_check():
     return {"status": "ok", "message": f"{settings.PROJECT_NAME} is healthy"}

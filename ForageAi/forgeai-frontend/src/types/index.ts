@@ -52,12 +52,15 @@ export interface BlueprintArtifact {
   id: string;
   blueprint_id: string;
   version: number;
+  agent_type?: string;
   artifact_type: string;
   file_path: string;
   content: string;
   language: string;
   file_size_bytes: number;
+  status?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Blueprint {
@@ -230,4 +233,41 @@ export interface RAGQueryResponse {
   results_count: number;
   results: RAGQueryResult[];
 }
+
+export interface CodeFileItem {
+  path: string;
+  name: string;
+  directory: string;
+  content: string;
+  language: string;
+  size_bytes: number;
+  source: string;
+}
+
+export interface CodeGenerateResponse {
+  generation_id: string;
+  blueprint_id: string;
+  project_id: string;
+  project_name: string;
+  version: number;
+  total_files: number;
+  total_bytes: number;
+  directories: string[];
+  files: CodeFileItem[];
+  created_at: string;
+}
+
+export interface CodeValidationIssue {
+  path?: string | null;
+  type: string;
+  message: string;
+}
+
+export interface CodeValidationResponse {
+  valid: boolean;
+  errors: CodeValidationIssue[];
+  warnings: CodeValidationIssue[];
+  checked_files: number;
+}
+
 

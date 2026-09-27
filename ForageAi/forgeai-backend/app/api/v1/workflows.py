@@ -49,27 +49,15 @@ def _background_workflow_worker(
     title: Optional[str] = None,
 ):
     """Background worker task executed by FastAPI BackgroundTasks."""
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            logger.error(f"Background execution failed: User {user_id} not found.")
-            return
-
-        WorkflowOrchestratorService.run_execution(
-            db=db,
-            workflow_execution_id=execution_id,
-            project_id=project_id,
-            user=user,
-            prompt=prompt,
-            tech_stack=tech_stack,
-            version=version,
-            title=title,
-        )
-    except Exception as e:
-        logger.error(f"Background workflow execution {execution_id} error: {e}", exc_info=True)
-    finally:
-        db.close()
+    WorkflowOrchestratorService.background_worker_task(
+        execution_id=execution_id,
+        project_id=project_id,
+        user_id=user_id,
+        prompt=prompt,
+        tech_stack=tech_stack,
+        version=version,
+        title=title,
+    )
 
 
 @router.post(

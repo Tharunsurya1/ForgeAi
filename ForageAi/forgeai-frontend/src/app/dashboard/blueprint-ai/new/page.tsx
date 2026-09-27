@@ -4,23 +4,37 @@ import * as React from "react"
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Sparkles, ArrowLeft, ArrowRight, Loader2, AlertCircle, ShoppingCart, Users, Bot, Workflow } from "lucide-react"
-import { blueprintsApi, projectsApi, workflowsApi } from "@/lib/api"
+import { Sparkles, ArrowLeft, Loader2, AlertCircle, ShoppingCart, Users, Bot, Layers, Server, Database, Code2 } from "lucide-react"
+import { projectsApi } from "@/lib/api"
 
 export default function NewProjectPage() {
   const router = useRouter()
-  const [prompt, setPrompt] = useState("")
+  const [idea, setIdea] = useState("")
+  const [requirements, setRequirements] = useState("")
+  const [frontendTech, setFrontendTech] = useState("Next.js 15")
+  const [backendTech, setBackendTech] = useState("FastAPI")
+  const [databaseTech, setDatabaseTech] = useState("PostgreSQL 16")
   const [isGenerating, setIsGenerating] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const handleTemplateSelect = (templatePrompt: string) => {
-    setPrompt(templatePrompt)
+  const handleTemplateSelect = (tmpl: {
+    idea: string
+    requirements: string
+    frontend: string
+    backend: string
+    database: string
+  }) => {
+    setIdea(tmpl.idea)
+    setRequirements(tmpl.requirements)
+    setFrontendTech(tmpl.frontend)
+    setBackendTech(tmpl.backend)
+    setDatabaseTech(tmpl.database)
   }
 
-  const handleGenerate = async (e?: React.FormEvent) => {
+  const handleCreateBlueprint = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    if (!prompt.trim()) {
-      setErrorMsg("Please provide a description of the application to blueprint.")
+    if (!idea.trim()) {
+      setErrorMsg("Please provide a software idea.")
       return
     }
 
@@ -33,80 +47,48 @@ export default function NewProjectPage() {
       let activeProject = existingProjects[0]
 
       if (!activeProject) {
-        const words = prompt.trim().split(" ")
-        const projectName = words.length <= 4 ? prompt.trim() : words.slice(0, 4).join(" ") + " App"
+        const words = idea.trim().split(" ")
+        const projectName = words.length <= 4 ? idea.trim() : words.slice(0, 4).join(" ") + " App"
         activeProject = await projectsApi.create({
           name: projectName,
-          description: prompt.slice(0, 200),
+          description: idea.slice(0, 200),
           tech_stack: {
-            backend: "FastAPI",
-            frontend: "Next.js 15",
-            database: "PostgreSQL 16",
+            frontend: frontendTech || "Next.js 15",
+            backend: backendTech || "FastAPI",
+            database: databaseTech || "PostgreSQL 16",
           },
         })
       }
 
-      // 2. Trigger Multi-Agent AI Blueprint Generation
-      const blueprint = await blueprintsApi.generate(activeProject.id, {
-        prompt: prompt.trim(),
-        title: `${activeProject.name} Blueprint`,
+      // 2. Trigger Standardized Asynchronous Multi-Agent AI Blueprint Creation
+      const response = await projectsApi.createBlueprint(activeProject.id, {
+        idea: idea.trim(),
+        requirements: requirements.trim(),
+        tech_preferences: {
+          frontend: frontendTech.trim() || "Next.js 15",
+          backend: backendTech.trim() || "FastAPI",
+          database: databaseTech.trim() || "PostgreSQL 16",
+        },
       })
 
-      // Store active blueprint ID for sub-pages
+      // Store active blueprint and execution IDs for seamless navigation
       if (typeof window !== "undefined") {
-        localStorage.setItem("forgeai_active_blueprint_id", blueprint.id)
+        if (response.blueprint_id) {
+          localStorage.setItem("forgeai_active_blueprint_id", response.blueprint_id)
+        }
         localStorage.setItem("forgeai_active_project_id", activeProject.id)
+        if (response.workflow_id) {
+          localStorage.setItem("forgeai_active_execution_id", response.workflow_id)
+        }
       }
 
       setIsGenerating(false)
-      router.push(`/dashboard/blueprint-ai/software-architecture?id=${blueprint.id}`)
-    } catch (err: any) {
+      // Navigate to LiveWorkflowMonitor
+      router.push(`/dashboard/workflows?tab=executions&executionId=${response.workflow_id}`)
+    } catch (err: unknown) {
       setIsGenerating(false)
-      setErrorMsg(err.message || "Failed to generate blueprint. Please verify backend connectivity.")
-    }
-  }
-
-  const handleStreamLive = async () => {
-    if (!prompt.trim()) {
-      setErrorMsg("Please provide a description of the application to blueprint.")
-      return
-    }
-
-    setErrorMsg(null)
-    setIsGenerating(true)
-
-    try {
-      const existingProjects = await projectsApi.list()
-      let activeProject = existingProjects[0]
-
-      if (!activeProject) {
-        const words = prompt.trim().split(" ")
-        const projectName = words.length <= 4 ? prompt.trim() : words.slice(0, 4).join(" ") + " App"
-        activeProject = await projectsApi.create({
-          name: projectName,
-          description: prompt.slice(0, 200),
-          tech_stack: {
-            backend: "FastAPI",
-            frontend: "Next.js 15",
-            database: "PostgreSQL 16",
-          },
-        })
-      }
-
-      const execution = await workflowsApi.execute(
-        activeProject.id,
-        {
-          prompt: prompt.trim(),
-          title: `${activeProject.name} Blueprint`,
-        },
-        true
-      )
-
-      setIsGenerating(false)
-      router.push(`/dashboard/workflows?tab=executions&executionId=${execution.id}`)
-    } catch (err: any) {
-      setIsGenerating(false)
-      setErrorMsg(err.message || "Failed to trigger live workflow execution.")
+      const errorText = err instanceof Error ? err.message : "Failed to create blueprint. Please verify backend connectivity."
+      setErrorMsg(errorText)
     }
   }
 
@@ -127,7 +109,7 @@ export default function NewProjectPage() {
           </div>
           <h2 className="font-display-xl text-3xl font-bold text-on-surface mb-2">New Blueprint</h2>
           <p className="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">
-            Describe your software concept in natural language. Our 7-agent AI DAG orchestrator will synthesize full-stack architecture, PostgreSQL schemas, and API contracts.
+            Provide your structured software specification. Our 14-agent AI DAG orchestrator will synthesize full-stack architecture, database models, API contracts, security profiles, and DevOps manifests.
           </p>
         </div>
 
@@ -138,64 +120,125 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {/* Prompt Input Area */}
-        <div className="relative glass-card rounded-xl p-1 flex flex-col flex-1 min-h-[320px] overflow-hidden border border-outline-variant/40">
-          <div className="custom-input bg-[#0F0F0F] rounded-lg flex-1 flex flex-col p-5 relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary-container/5 to-transparent pointer-events-none opacity-50 group-focus-within:opacity-100 transition-opacity duration-500"></div>
-
-            <textarea
-              className="w-full flex-1 bg-transparent border-none resize-none focus:ring-0 text-on-surface font-body-lg placeholder-on-surface-variant/50 relative z-10 outline-none text-base leading-relaxed"
-              placeholder="Describe your software idea... e.g., 'I want to build an enterprise multi-tenant e-commerce platform with real-time stock sync, Redis caching, and Stripe billing...'"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={6}
+        {/* Structured Input Form */}
+        <form onSubmit={handleCreateBlueprint} className="flex flex-col gap-4">
+          {/* Software Idea */}
+          <div className="glass-card rounded-xl p-4 border border-outline-variant/40 bg-[#0F0F0F] flex flex-col gap-2">
+            <label className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant flex items-center gap-2">
+              <Code2 className="w-4 h-4 text-primary" />
+              Software Idea <span className="text-primary">*</span>
+            </label>
+            <input
+              type="text"
+              className="w-full bg-[#161616] border border-outline-variant/50 rounded-lg px-4 py-2.5 text-on-surface placeholder-on-surface-variant/40 focus:border-primary/80 focus:ring-1 focus:ring-primary/80 outline-none text-sm font-medium transition-all"
+              placeholder="e.g., Enterprise multi-tenant e-commerce platform for handmade goods"
+              value={idea}
+              onChange={(e) => setIdea(e.target.value)}
+              required
             />
+          </div>
 
-            {/* Toolbar inside prompt */}
-            <div className="flex justify-between items-center mt-4 relative z-10 border-t border-outline-variant/30 pt-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-code-sm text-on-surface-variant/70 px-2.5 py-1 bg-surface-container rounded-md border border-outline-variant/30">
-                  ⚡ Multi-Agent DAG v2.0
+          {/* Requirements */}
+          <div className="glass-card rounded-xl p-4 border border-outline-variant/40 bg-[#0F0F0F] flex flex-col gap-2">
+            <label className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant flex items-center gap-2">
+              <Layers className="w-4 h-4 text-secondary" />
+              Requirements & Key Features
+            </label>
+            <textarea
+              className="w-full bg-[#161616] border border-outline-variant/50 rounded-lg p-4 text-on-surface placeholder-on-surface-variant/40 focus:border-primary/80 focus:ring-1 focus:ring-primary/80 outline-none text-sm leading-relaxed resize-y transition-all"
+              placeholder="e.g., Users should browse products, add products to cart, and place orders with Stripe. Admin dashboard with real-time stock sync, inventory analytics, and audit logging."
+              rows={4}
+              value={requirements}
+              onChange={(e) => setRequirements(e.target.value)}
+            />
+          </div>
+
+          {/* Tech Stack Preferences */}
+          <div className="glass-card rounded-xl p-4 border border-outline-variant/40 bg-[#0F0F0F] flex flex-col gap-3">
+            <label className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant flex items-center gap-2">
+              <Server className="w-4 h-4 text-tertiary" />
+              Tech Stack Preferences
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Frontend */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-on-surface-variant font-medium flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                  Frontend
                 </span>
-                <span className="text-xs text-on-surface-variant/50 hidden sm:inline">
-                  (Requirements, DB Schema, Architecture, API, Frontend, Security, Docker)
-                </span>
+                <input
+                  type="text"
+                  className="bg-[#161616] border border-outline-variant/50 rounded-lg px-3 py-2 text-xs text-on-surface placeholder-on-surface-variant/40 focus:border-primary/80 focus:ring-1 focus:ring-primary/80 outline-none transition-all font-mono"
+                  placeholder="e.g. Next.js 15"
+                  value={frontendTech}
+                  onChange={(e) => setFrontendTech(e.target.value)}
+                />
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleStreamLive}
-                  disabled={isGenerating || !prompt.trim()}
-                  className="px-4 py-2.5 rounded-lg bg-[#1a1d2d] hover:bg-[#252a40] text-purple-300 hover:text-white border border-purple-500/30 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Workflow className="w-4 h-4 text-purple-400" />
-                  Stream Live DAG
-                </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleGenerate()}
-                  disabled={isGenerating || !prompt.trim()}
-                  className="btn-primary text-xs flex items-center gap-2 px-5 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20 cursor-pointer"
-                >
-                  {isGenerating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Synthesizing 14 Agents...
-                    </>
-                  ) : (
-                    <>
-                      Generate Blueprint
-                      <Sparkles className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
+              {/* Backend */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-on-surface-variant font-medium flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  Backend
+                </span>
+                <input
+                  type="text"
+                  className="bg-[#161616] border border-outline-variant/50 rounded-lg px-3 py-2 text-xs text-on-surface placeholder-on-surface-variant/40 focus:border-primary/80 focus:ring-1 focus:ring-primary/80 outline-none transition-all font-mono"
+                  placeholder="e.g. FastAPI"
+                  value={backendTech}
+                  onChange={(e) => setBackendTech(e.target.value)}
+                />
+              </div>
+
+              {/* Database */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-on-surface-variant font-medium flex items-center gap-1.5">
+                  <Database className="w-3 h-3 text-amber-400" />
+                  Database
+                </span>
+                <input
+                  type="text"
+                  className="bg-[#161616] border border-outline-variant/50 rounded-lg px-3 py-2 text-xs text-on-surface placeholder-on-surface-variant/40 focus:border-primary/80 focus:ring-1 focus:ring-primary/80 outline-none transition-all font-mono"
+                  placeholder="e.g. PostgreSQL 16"
+                  value={databaseTech}
+                  onChange={(e) => setDatabaseTech(e.target.value)}
+                />
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Suggestions & Uploads Grid */}
+          {/* Action Footer */}
+          <div className="flex justify-between items-center bg-[#0F0F0F] rounded-xl p-3 border border-outline-variant/40">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-code-sm text-on-surface-variant/70 px-2.5 py-1 bg-surface-container rounded-md border border-outline-variant/30">
+                ⚡ 14-Agent DAG Pipeline
+              </span>
+              <span className="text-xs text-on-surface-variant/50 hidden md:inline">
+                Requirements → Architecture → Schema → API → UI/UX → Security → DevOps
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isGenerating || !idea.trim()}
+              className="btn-primary text-xs flex items-center gap-2 px-6 py-2.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/20 cursor-pointer transition-all"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Queueing 14-Agent Workflow...
+                </>
+              ) : (
+                <>
+                  Generate Blueprint
+                  <Sparkles className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+
+        {/* Suggestions Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-3 glass-card p-5 rounded-xl flex flex-col gap-3 border border-outline-variant/30">
             <h3 className="font-label-md text-xs text-on-surface uppercase tracking-wider font-semibold">
@@ -203,17 +246,42 @@ export default function NewProjectPage() {
             </h3>
             <div className="flex flex-wrap gap-2">
               {[
-                "SaaS Multi-tenant Project Management Platform",
-                "FinTech Micro-lending API with Risk Assessment",
-                "Real-time IoT Telemetry & Analytics Dashboard",
-                "AI Agent Knowledge Base & Vector RAG Engine",
+                {
+                  idea: "SaaS Multi-tenant Project Management Platform",
+                  requirements: "Task boards, sprint planning, team assignments, real-time activity feeds, and workspace permissions.",
+                  frontend: "Next.js 15",
+                  backend: "FastAPI",
+                  database: "PostgreSQL 16",
+                },
+                {
+                  idea: "FinTech Micro-lending API with Automated Risk Scoring",
+                  requirements: "KYC document verification, credit risk engine, loan disbursement workflows, repayment tracking, and audit compliance.",
+                  frontend: "React 19 / Vite",
+                  backend: "FastAPI",
+                  database: "PostgreSQL 16",
+                },
+                {
+                  idea: "Real-time IoT Telemetry & Analytics Dashboard",
+                  requirements: "Device ingestion pipeline, time-series data visualization, anomaly alerting, and fleet firmware update tracking.",
+                  frontend: "Next.js 15",
+                  backend: "Go / FastAPI",
+                  database: "PostgreSQL + TimescaleDB",
+                },
+                {
+                  idea: "AI Knowledge Base & Semantic Vector RAG Engine",
+                  requirements: "Document ingestion with chunking, hybrid vector search with Qdrant, multi-agent query routing, and citation generation.",
+                  frontend: "Next.js 15",
+                  backend: "FastAPI",
+                  database: "PostgreSQL + Qdrant",
+                },
               ].map((suggestion) => (
                 <button
-                  key={suggestion}
+                  key={suggestion.idea}
+                  type="button"
                   onClick={() => handleTemplateSelect(suggestion)}
                   className="px-3.5 py-2 rounded-lg border border-outline-variant/50 bg-[#161616] hover:border-primary/60 hover:bg-[#1E1E24] text-xs font-code-sm text-on-surface transition-all text-left"
                 >
-                  {suggestion}
+                  {suggestion.idea}
                 </button>
               ))}
             </div>
@@ -230,9 +298,13 @@ export default function NewProjectPage() {
         {/* Template Card 1 */}
         <div
           onClick={() =>
-            handleTemplateSelect(
-              "Headless enterprise e-commerce platform with multi-warehouse inventory, Redis caching, and Stripe payment gateway."
-            )
+            handleTemplateSelect({
+              idea: "Headless enterprise e-commerce platform with multi-warehouse inventory and Redis caching.",
+              requirements: "Users should browse products, add products to cart, and place orders with Stripe. Admin dashboard with real-time stock sync and inventory analytics.",
+              frontend: "Next.js 15",
+              backend: "FastAPI",
+              database: "PostgreSQL 16",
+            })
           }
           className="glass-panel p-4 rounded-xl cursor-pointer hover:border-primary/50 transition-all duration-200 border border-outline-variant/30 bg-[#141414]"
         >
@@ -253,9 +325,13 @@ export default function NewProjectPage() {
         {/* Template Card 2 */}
         <div
           onClick={() =>
-            handleTemplateSelect(
-              "Enterprise HR & Team collaboration portal with multi-tenant RBAC, employee profiles, and audit logging."
-            )
+            handleTemplateSelect({
+              idea: "Enterprise HR & Team collaboration portal with multi-tenant RBAC.",
+              requirements: "Multi-tenant organization hierarchy, employee directories, role-based permissions, automated onboarding workflows, and audit logging.",
+              frontend: "React 19 / Vite",
+              backend: "FastAPI",
+              database: "PostgreSQL 16",
+            })
           }
           className="glass-panel p-4 rounded-xl cursor-pointer hover:border-primary/50 transition-all duration-200 border border-outline-variant/30 bg-[#141414]"
         >
@@ -276,9 +352,13 @@ export default function NewProjectPage() {
         {/* Template Card 3 */}
         <div
           onClick={() =>
-            handleTemplateSelect(
-              "Autonomous AI Agent Assistant with document vector indexing, semantic search, and streaming responses."
-            )
+            handleTemplateSelect({
+              idea: "Autonomous AI Agent Assistant with document vector indexing and semantic search.",
+              requirements: "Document ingestion pipeline, chunking, semantic RAG search with vector database, real-time token streaming, and citation support.",
+              frontend: "Next.js 15",
+              backend: "FastAPI",
+              database: "PostgreSQL + Qdrant",
+            })
           }
           className="glass-panel p-4 rounded-xl cursor-pointer hover:border-primary/50 transition-all duration-200 border border-outline-variant/30 bg-[#141414]"
         >
@@ -299,3 +379,4 @@ export default function NewProjectPage() {
     </div>
   )
 }
+

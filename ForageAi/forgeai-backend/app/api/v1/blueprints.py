@@ -1,11 +1,16 @@
+from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.schemas.blueprint import BlueprintGenerateRequest, BlueprintResponse
+from app.schemas.blueprint import (
+    BlueprintArtifactsListResponse,
+    BlueprintGenerateRequest,
+    BlueprintResponse,
+)
 from app.services.blueprint_service import BlueprintService
 
 router = APIRouter()
@@ -37,6 +42,30 @@ def generate_blueprint(
 
 
 @router.get(
+    "/{blueprint_id}/artifacts",
+    response_model=BlueprintArtifactsListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Retrieve all generated specialist artifacts for a blueprint",
+)
+def get_blueprint_artifacts(
+    blueprint_id: UUID,
+    version: Optional[int] = Query(None, description="Optional version number to fetch historical artifacts"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Fetch all specialist deliverables (Requirements, Architecture, SQL DDL, OpenAPI, Docker, Security, etc.)
+    associated with a blueprint, with multi-tenant RBAC validation and optional version filtering.
+    """
+    return BlueprintService.get_blueprint_artifacts(
+        db=db,
+        blueprint_id=blueprint_id,
+        user=current_user,
+        version=version,
+    )
+
+
+@router.get(
     "/{blueprint_id}",
     response_model=BlueprintResponse,
     status_code=status.HTTP_200_OK,
@@ -56,6 +85,7 @@ def get_blueprint(
         user=current_user,
     )
     return blueprint
+
 
 
 @router.get(

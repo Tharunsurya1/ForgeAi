@@ -29,6 +29,9 @@ class WorkflowState(TypedDict, total=False):
     triggered_by_user_id: Optional[str]
     prompt: str
     tech_stack: Dict[str, Any]
+    idea: Optional[str]
+    requirements_input: Optional[str]
+    tech_preferences: Optional[Dict[str, Any]]
 
     # Domain Outputs from 14 Specialist Agents
     supervisor_plan: Optional[Dict[str, Any]]
@@ -68,21 +71,33 @@ def create_initial_workflow_state(
     triggered_by_user_id: Optional[str] = None,
     tech_stack: Optional[Dict[str, Any]] = None,
     organization_id: Optional[str] = None,
+    idea: Optional[str] = None,
+    requirements_input: Optional[str] = None,
+    tech_preferences: Optional[Dict[str, Any]] = None,
 ) -> WorkflowState:
     """
     Factory helper to initialize a fresh WorkflowState dictionary with safe defaults.
     """
+    combined_tech_stack = {
+        "backend": "FastAPI",
+        "frontend": "Next.js 15",
+        "database": "PostgreSQL 16",
+    }
+    if tech_stack:
+        combined_tech_stack.update(tech_stack)
+    if tech_preferences:
+        combined_tech_stack.update(tech_preferences)
+
     return {
         "workflow_execution_id": workflow_execution_id,
         "project_id": project_id,
         "organization_id": organization_id,
         "triggered_by_user_id": triggered_by_user_id,
         "prompt": prompt,
-        "tech_stack": tech_stack or {
-            "backend": "FastAPI",
-            "frontend": "Next.js 15",
-            "database": "PostgreSQL 16",
-        },
+        "tech_stack": combined_tech_stack,
+        "idea": idea,
+        "requirements_input": requirements_input,
+        "tech_preferences": tech_preferences or {},
         "supervisor_plan": None,
         "requirements": None,
         "business_analysis": None,

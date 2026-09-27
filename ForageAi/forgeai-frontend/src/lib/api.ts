@@ -1,5 +1,6 @@
 import {
   Blueprint,
+  BlueprintArtifact,
   InvitationAction,
   InvitationPublic,
   Organization,
@@ -16,6 +17,9 @@ import {
   RAGHealth,
   RAGIndexResult,
   RAGQueryResponse,
+  CodeGenerateResponse,
+  CodeFileItem,
+  CodeValidationResponse,
 } from "@/types";
 
 import { authStorage } from "./auth";
@@ -297,6 +301,37 @@ export const projectsApi = {
       requiresAuth: true,
     });
   },
+
+  async createBlueprint(
+    projectId: string,
+    data: {
+      idea?: string;
+      requirements?: string;
+      tech_preferences?: {
+        frontend?: string;
+        backend?: string;
+        database?: string;
+        [key: string]: unknown;
+      };
+      prompt?: string;
+      title?: string;
+      tech_stack?: Record<string, unknown>;
+    }
+  ): Promise<{
+    workflow_id: string;
+    blueprint_id: string;
+    status: string;
+  }> {
+    return fetchClient<{
+      workflow_id: string;
+      blueprint_id: string;
+      status: string;
+    }>(`/projects/${projectId}/blueprints`, {
+      method: "POST",
+      body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
 };
 
 export const blueprintsApi = {
@@ -339,6 +374,29 @@ export const blueprintsApi = {
 
   async get(blueprintId: string): Promise<Blueprint> {
     return fetchClient<Blueprint>(`/blueprints/${blueprintId}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async getArtifacts(
+    blueprintId: string,
+    version?: number
+  ): Promise<{
+    blueprint_id: string;
+    current_version: number;
+    selected_version: number;
+    total_artifacts: number;
+    artifacts: BlueprintArtifact[];
+  }> {
+    const query = version ? `?version=${version}` : "";
+    return fetchClient<{
+      blueprint_id: string;
+      current_version: number;
+      selected_version: number;
+      total_artifacts: number;
+      artifacts: BlueprintArtifact[];
+    }>(`/blueprints/${blueprintId}/artifacts${query}`, {
       method: "GET",
       requiresAuth: true,
     });
@@ -620,6 +678,64 @@ export const ragApi = {
     return fetchClient<RAGQueryResponse>("/rag/query", {
       method: "POST",
       body: JSON.stringify(data),
+      requiresAuth: true,
+    });
+  },
+};
+
+export const codeGeneratorApi = {
+  async generate(blueprintId: string, version?: number): Promise<CodeGenerateResponse> {
+    return fetchClient<CodeGenerateResponse>("/code-generator/generate", {
+      method: "POST",
+      body: JSON.stringify({ blueprint_id: blueprintId, version }),
+      requiresAuth: true,
+    });
+  },
+
+  async getByBlueprint(blueprintId: string, version?: number): Promise<CodeGenerateResponse> {
+    const query = version ? `?version=${version}` : "";
+    return fetchClient<CodeGenerateResponse>(`/code-generator/blueprint/${blueprintId}${query}`, {
+      method: "GET",
+      requiresAuth: true,
+    });
+  },
+
+  async downloadZip(blueprintId: string, version?: number): Promise<void> {
+    const token = authStorage.getAccessToken();
+    const query = version ? `?version=${version}` : "";
+    const url = `${API_BASE_URL}/code-generator/blueprint/${blueprintId}/download${query}`;
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed to download project zip: ${res.statusText}`);
+    }
+
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition");
+    let filename = "project_scaffold.zip";
+    if (disposition && disposition.includes("filename=")) {
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+  },
+
+  async validate(blueprintId: string, version?: number): Promise<CodeValidationResponse> {
+    const query = version ? `?version=${version}` : "";
+    return fetchClient<CodeValidationResponse>(`/code-generator/blueprint/${blueprintId}/validate${query}`, {
+      method: "POST",
       requiresAuth: true,
     });
   },

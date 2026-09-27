@@ -10,7 +10,11 @@ from app.schemas.auth import (
     UserSessionResponse,
 )
 from app.schemas.blueprint import (
+    BlueprintArtifactItemResponse,
     BlueprintArtifactResponse,
+    BlueprintArtifactsListResponse,
+    BlueprintCreateRequest,
+    BlueprintCreateResponse,
     BlueprintGenerateRequest,
     BlueprintResponse,
 )
@@ -45,6 +49,13 @@ from app.schemas.workflow import (
     WorkflowExecutionDetailResponse,
     WorkflowExecutionResponse,
 )
+from app.schemas.code_generator import (
+    CodeFileItem,
+    CodeGenerateRequest,
+    CodeGenerateResponse,
+    CodeValidationIssue,
+    CodeValidationResponse,
+)
 from app.schemas.rag import (
     RAGHealthResponse,
     RAGIndexResponse,
@@ -67,8 +78,12 @@ __all__ = [
     "ProjectUpdate",
     "ProjectResponse",
     "ProjectListResponse",
+    "BlueprintCreateRequest",
+    "BlueprintCreateResponse",
     "BlueprintGenerateRequest",
     "BlueprintArtifactResponse",
+    "BlueprintArtifactItemResponse",
+    "BlueprintArtifactsListResponse",
     "BlueprintResponse",
     "OrganizationResponse",
     "OrganizationCreateRequest",
@@ -89,5 +104,10 @@ __all__ = [
     "WorkflowExecutionDetailResponse",
     "AgentRunResponse",
     "WorkflowEventResponse",
+    "CodeFileItem",
+    "CodeGenerateRequest",
+    "CodeGenerateResponse",
+    "CodeValidationIssue",
+    "CodeValidationResponse",
 ]
 

@@ -1,11 +1,12 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
+from app.schemas.blueprint import BlueprintCreateRequest, BlueprintCreateResponse
 from app.schemas.project import (
     ProjectCreate,
     ProjectListResponse,
@@ -13,6 +14,7 @@ from app.schemas.project import (
     ProjectUpdate,
 )
 from app.services.project_service import ProjectService
+from app.services.workflow_service import WorkflowOrchestratorService
 
 router = APIRouter()
 
@@ -109,3 +111,66 @@ def delete_project(
     """
     ProjectService.delete_project(db=db, project_id=project_id, user=current_user)
     return {"message": "Project successfully deleted"}
+
+
+@router.post(
+    "/{project_id}/blueprints",
+    response_model=BlueprintCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new blueprint and trigger asynchronous 14-agent workflow generation",
+)
+def create_project_blueprint(
+    project_id: UUID,
+    data: BlueprintCreateRequest,
+    background_tasks: BackgroundTasks = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Standardized blueprint creation endpoint:
+    1. Authenticates user and checks organization RBAC permissions.
+    2. Immediately creates a Blueprint record in generating status.
+    3. Immediately creates a WorkflowExecution record and links workflow_execution.blueprint_id.
+    4. Dispatches the 14-agent LangGraph workflow in the background.
+    5. Returns immediately with workflow_id, blueprint_id, and status='queued'.
+    """
+    execution, project, version, tech_stack = (
+        WorkflowOrchestratorService.create_workflow_execution(
+            db=db,
+            project_id=project_id,
+            user=current_user,
+            data=data,
+        )
+    )
+
+    if background_tasks is not None:
+        background_tasks.add_task(
+            WorkflowOrchestratorService.background_worker_task,
+            execution_id=execution.id,
+            project_id=project.id,
+            user_id=current_user.id,
+            prompt=execution.prompt,
+            tech_stack=tech_stack,
+            version=version,
+            title=data.title,
+        )
+    else:
+        import asyncio
+        asyncio.create_task(
+            asyncio.to_thread(
+                WorkflowOrchestratorService.background_worker_task,
+                execution.id,
+                project.id,
+                current_user.id,
+                execution.prompt,
+                tech_stack,
+                version,
+                data.title,
+            )
+        )
+
+    return BlueprintCreateResponse(
+        workflow_id=execution.id,
+        blueprint_id=execution.blueprint_id,
+        status="queued",
+    )

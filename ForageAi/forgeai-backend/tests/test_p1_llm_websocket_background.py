@@ -369,6 +369,7 @@ def test_background_workflow_execution_returns_immediately(client: TestClient, d
     db_event = (
         db.query(WorkflowEvent)
         .filter(WorkflowEvent.workflow_execution_id == execution_id)
+        .order_by(WorkflowEvent.sequence_number.asc())
         .first()
     )
     assert db_event is not None

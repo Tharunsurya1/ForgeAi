@@ -247,9 +247,24 @@ function LiveWorkflowMonitorContent({ initialExecutionId }: LiveWorkflowMonitorP
           AGENTS_LIST.forEach((ag) => {
             setAgentStatuses((prev) => ({ ...prev, [ag.id]: "completed" }))
           })
-          setActiveExecution((prev) => (prev ? { ...prev, status: "completed", progress_percentage: 100 } : null))
+          const rawPayload = payload as Record<string, unknown> | undefined
+          const completedBpId = (payload?.blueprint_id as string | undefined) || (rawPayload?.blueprintId as string | undefined)
+          setActiveExecution((prev) => (prev ? {
+            ...prev,
+            status: "completed",
+            progress_percentage: 100,
+            blueprint_id: completedBpId || prev.blueprint_id,
+          } : null))
+          if (completedBpId && typeof window !== "undefined") {
+            localStorage.setItem("forgeai_active_blueprint_id", completedBpId)
+          }
         } else if (event_type === "workflow_failed") {
-          setActiveExecution((prev) => (prev ? { ...prev, status: "failed" } : null))
+          const failErr = payload?.error || "Workflow execution failed"
+          setActiveExecution((prev) => (prev ? {
+            ...prev,
+            status: "failed",
+            error_message: failErr,
+          } : null))
         }
       } catch (err: unknown) {
         console.error("Failed to parse websocket message:", err)

@@ -73,6 +73,9 @@ def _execute_agent_node(
         "optimizations",
         "correction_intent",
         "review_feedback",
+        "idea",
+        "requirements_input",
+        "tech_preferences",
     ]:
         val = state.get(key)
         if val is not None:

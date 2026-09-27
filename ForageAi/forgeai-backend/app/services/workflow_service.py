@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime, timezone
 import threading
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -22,7 +22,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.models.workflow_event import WorkflowEvent
 from app.models.workflow_execution import WorkflowExecution
-from app.schemas.blueprint import BlueprintGenerateRequest
+from app.schemas.blueprint import BlueprintCreateRequest, BlueprintGenerateRequest
 from app.services.project_service import ProjectService
 
 logger = logging.getLogger("forgeai.workflow_service")
@@ -213,11 +213,12 @@ class WorkflowOrchestratorService:
         db: Session,
         project_id: UUID,
         user: User,
-        data: BlueprintGenerateRequest,
+        data: Union[BlueprintGenerateRequest, BlueprintCreateRequest, Any],
     ) -> Tuple[WorkflowExecution, Project, int, Dict[str, Any]]:
         """
         Validates project access, checks RBAC, allocates next blueprint version,
-        and creates initial running WorkflowExecution and workflow_started WorkflowEvent.
+        creates the initial generating Blueprint record, creates the running WorkflowExecution,
+        links workflow_execution.blueprint_id immediately, and records initial workflow_started event.
         """
         # 1. Project & RBAC Validation
         project = ProjectService.get_project_by_id(db, project_id, user)
@@ -247,20 +248,66 @@ class WorkflowOrchestratorService:
         )
         version = (existing_blueprint.current_version + 1) if existing_blueprint else 1
 
-        tech_stack = data.tech_stack or project.tech_stack or {
-            "backend": "FastAPI",
-            "frontend": "Next.js 15",
-            "database": "PostgreSQL 16",
-        }
+        effective_prompt = (
+            data.get_effective_prompt()
+            if hasattr(data, "get_effective_prompt")
+            else getattr(data, "prompt", "Generate software blueprint")
+        )
+        effective_tech_stack = (
+            data.get_effective_tech_stack()
+            if hasattr(data, "get_effective_tech_stack")
+            else (getattr(data, "tech_stack", None) or project.tech_stack or {
+                "backend": "FastAPI",
+                "frontend": "Next.js 15",
+                "database": "PostgreSQL 16",
+            })
+        )
+        if not effective_tech_stack:
+            effective_tech_stack = project.tech_stack or {
+                "backend": "FastAPI",
+                "frontend": "Next.js 15",
+                "database": "PostgreSQL 16",
+            }
 
-        # 3. Create and Persist WorkflowExecution Entity
+        app_title = (
+            getattr(data, "title", None)
+            or (getattr(data, "idea", None) and str(data.idea).strip()[:80])
+            or f"{project.name} Architecture Blueprint"
+        )
+
+        idea_val = getattr(data, "idea", None)
+        reqs_val = getattr(data, "requirements", None)
+        tech_prefs_val = getattr(data, "tech_preferences", None) or {}
+
+        # 3. Create Blueprint record upfront with generating status
+        blueprint = Blueprint(
+            project_id=project.id,
+            current_version=version,
+            title=app_title,
+            summary="Blueprint generation in progress by 14 specialist AI agents...",
+            status="generating",
+            metadata_={
+                "project_name": project.name,
+                "project_slug": project.slug,
+                "prompt": effective_prompt,
+                "idea": idea_val,
+                "requirements": reqs_val,
+                "tech_preferences": tech_prefs_val,
+                "status": "queued",
+            },
+        )
+        db.add(blueprint)
+        db.flush()
+
+        # 4. Create and Persist WorkflowExecution Entity linked to Blueprint
         workflow_execution = WorkflowExecution(
             project_id=project.id,
             triggered_by_user_id=user.id,
+            blueprint_id=blueprint.id,
             workflow_name="full_blueprint_generation",
             status="running",
-            prompt=data.prompt,
-            tech_stack=tech_stack,
+            prompt=effective_prompt,
+            tech_stack=effective_tech_stack,
             current_agent="SupervisorAgent",
             progress_percentage=0,
             started_at=datetime.now(timezone.utc),
@@ -269,13 +316,23 @@ class WorkflowOrchestratorService:
                 "project_slug": project.slug,
                 "engine": "LangGraph 14-Agent Orchestrator v2.0",
                 "version": version,
-                "title": data.title or f"{project.name} Architecture Blueprint",
+                "title": app_title,
+                "blueprint_id": str(blueprint.id),
+                "idea": idea_val,
+                "requirements": reqs_val,
+                "tech_preferences": tech_prefs_val,
             },
         )
         db.add(workflow_execution)
         db.flush()
 
-        # 4. Record and Broadcast initial workflow_started event
+        blueprint.metadata_ = {
+            **(blueprint.metadata_ or {}),
+            "workflow_execution_id": str(workflow_execution.id),
+        }
+        db.add(blueprint)
+
+        # 5. Record and Broadcast initial workflow_started event
         start_event = WorkflowEvent(
             workflow_execution_id=workflow_execution.id,
             event_type="workflow_started",
@@ -283,13 +340,17 @@ class WorkflowOrchestratorService:
             sequence_number=1,
             payload={
                 "project_id": str(project.id),
-                "prompt": data.prompt,
-                "tech_stack": tech_stack,
+                "blueprint_id": str(blueprint.id),
+                "prompt": effective_prompt,
+                "tech_stack": effective_tech_stack,
+                "idea": idea_val,
+                "requirements": reqs_val,
             },
         )
         db.add(start_event)
         db.commit()
         db.refresh(workflow_execution)
+        db.refresh(blueprint)
 
         workflow_event_broadcaster.broadcast(
             str(workflow_execution.id),
@@ -301,11 +362,15 @@ class WorkflowOrchestratorService:
                 status="running",
                 progress=0,
                 message="Workflow started. SupervisorAgent initialized DAG execution.",
-                payload={"prompt": data.prompt, "tech_stack": tech_stack},
+                payload={
+                    "prompt": effective_prompt,
+                    "tech_stack": effective_tech_stack,
+                    "blueprint_id": str(blueprint.id),
+                },
             ),
         )
 
-        return workflow_execution, project, version, tech_stack
+        return workflow_execution, project, version, effective_tech_stack
 
     @classmethod
     def run_execution(
@@ -319,6 +384,9 @@ class WorkflowOrchestratorService:
         version: int,
         title: Optional[str] = None,
         provider: Optional[LLMProvider] = None,
+        idea: Optional[str] = None,
+        requirements_input: Optional[str] = None,
+        tech_preferences: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Blueprint, WorkflowExecution]:
         """
         Executes the 14-agent LangGraph workflow step by step using graph.stream().
@@ -396,6 +464,11 @@ class WorkflowOrchestratorService:
             p = provider or get_default_provider()
             graph = build_workflow_graph(provider=p, on_agent_start=on_agent_start)
 
+            exec_meta = workflow_execution.metadata_ or {}
+            eff_idea = idea or exec_meta.get("idea")
+            eff_reqs = requirements_input or exec_meta.get("requirements")
+            eff_tech_prefs = tech_preferences or exec_meta.get("tech_preferences")
+
             initial_state = create_initial_workflow_state(
                 prompt=prompt,
                 project_id=str(project.id),
@@ -403,6 +476,9 @@ class WorkflowOrchestratorService:
                 triggered_by_user_id=str(user.id),
                 tech_stack=tech_stack,
                 organization_id=str(project.organization_id),
+                idea=eff_idea,
+                requirements_input=eff_reqs,
+                tech_preferences=eff_tech_prefs,
             )
 
             # Stream through the LangGraph StateGraph node-by-node
@@ -578,7 +654,7 @@ class WorkflowOrchestratorService:
                             ),
                         )
 
-            # 5. Create Blueprint Record
+            # 5. Retrieve Pre-Created Blueprint or Create New
             quality_score = accumulated.get("quality_score", 95)
             approval_verdict = accumulated.get("approval_verdict", "APPROVED")
             completed_agents = accumulated.get("completed_agents", [])
@@ -590,23 +666,43 @@ class WorkflowOrchestratorService:
                 f"Quality Score: {quality_score}/100 ({approval_verdict})."
             )
 
-            blueprint = Blueprint(
-                project_id=project.id,
-                current_version=version,
-                title=app_title,
-                summary=summary,
-                status="completed",
-                metadata_={
+            blueprint = None
+            if workflow_execution.blueprint_id:
+                blueprint = db.query(Blueprint).filter(Blueprint.id == workflow_execution.blueprint_id).first()
+
+            if blueprint:
+                blueprint.title = app_title
+                blueprint.summary = summary
+                blueprint.status = "completed"
+                blueprint.current_version = version
+                blueprint.metadata_ = {
+                    **(blueprint.metadata_ or {}),
                     "prompt": prompt,
                     "workflow_execution_id": str(workflow_execution.id),
                     "quality_score": quality_score,
                     "approval_verdict": approval_verdict,
                     "retry_count": accumulated.get("retry_count", 0),
                     "agents_count": len(completed_agents),
-                },
-            )
-            db.add(blueprint)
-            db.flush()
+                }
+            else:
+                blueprint = Blueprint(
+                    project_id=project.id,
+                    current_version=version,
+                    title=app_title,
+                    summary=summary,
+                    status="completed",
+                    metadata_={
+                        "prompt": prompt,
+                        "workflow_execution_id": str(workflow_execution.id),
+                        "quality_score": quality_score,
+                        "approval_verdict": approval_verdict,
+                        "retry_count": accumulated.get("retry_count", 0),
+                        "agents_count": len(completed_agents),
+                    },
+                )
+                db.add(blueprint)
+                db.flush()
+                workflow_execution.blueprint_id = blueprint.id
 
             # 6. Persist Blueprint Artifacts
             artifacts_list = []
@@ -702,11 +798,21 @@ class WorkflowOrchestratorService:
                     workflow_execution.completed_at = datetime.now(timezone.utc)
                     db.add(workflow_execution)
 
+                    if workflow_execution.blueprint_id:
+                        failed_bp = db.query(Blueprint).filter(Blueprint.id == workflow_execution.blueprint_id).first()
+                        if failed_bp:
+                            failed_bp.status = "failed"
+                            failed_bp.summary = f"Workflow failed: {str(e)}"
+                            db.add(failed_bp)
+
                     fail_event = WorkflowEvent(
                         workflow_execution_id=workflow_execution.id,
                         event_type="workflow_failed",
                         sequence_number=fail_seq,
-                        payload={"error": str(e)},
+                        payload={
+                            "error": str(e),
+                            "blueprint_id": str(workflow_execution.blueprint_id) if workflow_execution.blueprint_id else None,
+                        },
                     )
                     db.add(fail_event)
                 db.commit()
@@ -720,7 +826,10 @@ class WorkflowOrchestratorService:
                         status="failed",
                         progress=workflow_execution.progress_percentage,
                         message=f"Workflow failed: {str(e)}",
-                        payload={"error": str(e)},
+                        payload={
+                            "error": str(e),
+                            "blueprint_id": str(workflow_execution.blueprint_id) if workflow_execution.blueprint_id else None,
+                        },
                     ),
                 )
             except Exception as inner_e:
@@ -731,6 +840,42 @@ class WorkflowOrchestratorService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Workflow execution failed: {str(e)}",
             )
+
+    @classmethod
+    def background_worker_task(
+        cls,
+        execution_id: UUID,
+        project_id: UUID,
+        user_id: UUID,
+        prompt: str,
+        tech_stack: dict,
+        version: int,
+        title: Optional[str] = None,
+        provider: Optional[LLMProvider] = None,
+    ):
+        """Standardized background worker task reusable across background and API tasks."""
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                logger.error(f"Background execution failed: User {user_id} not found.")
+                return
+
+            cls.run_execution(
+                db=db,
+                workflow_execution_id=execution_id,
+                project_id=project_id,
+                user=user,
+                prompt=prompt,
+                tech_stack=tech_stack,
+                version=version,
+                title=title,
+                provider=provider,
+            )
+        except Exception as e:
+            logger.error(f"Background workflow execution {execution_id} error: {e}", exc_info=True)
+        finally:
+            db.close()
 
     @classmethod
     def execute_blueprint_workflow(
@@ -755,13 +900,16 @@ class WorkflowOrchestratorService:
         return cls.run_execution(
             db=db,
             workflow_execution_id=workflow_execution.id,
-            project_id=project.id,
+            project_id=project_id,
             user=user,
-            prompt=data.prompt,
+            prompt=workflow_execution.prompt,
             tech_stack=tech_stack,
             version=version,
-            title=data.title,
+            title=getattr(data, "title", None),
             provider=provider,
+            idea=getattr(data, "idea", None),
+            requirements_input=getattr(data, "requirements", None),
+            tech_preferences=getattr(data, "tech_preferences", None),
         )
 
     @classmethod
